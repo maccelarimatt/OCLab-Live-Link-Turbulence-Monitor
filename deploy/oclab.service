@@ -1,0 +1,27 @@
+[Unit]
+Description=Wits OC Lab laser-link recorder and public dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=oclab
+Group=oclab
+WorkingDirectory=/opt/oclab
+ExecStart=/opt/oclab/.venv/bin/oclab --config /etc/oclab/config.toml
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=45
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+UMask=0027
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+# USB access is needed; do not set PrivateDevices=true.
+ReadWritePaths=/var/lib/oclab
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target
+

@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Live free-space optical link measurements and open research recordings from the Wits Optical Communications Lab.">
+  <title>Live link observatory · Wits OC Lab</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to measurements</a>
+  <header class="masthead">
+    <div class="shell header-inner">
+      <a class="brand" href="https://www.wits.ac.za/oclab/" target="_blank" rel="noopener">
+        <span class="brand-mark" aria-hidden="true">OC<span>LAB</span></span>
+        <span class="brand-name">Optical Communications Lab<small>UNIVERSITY OF THE WITWATERSRAND</small></span>
+      </a>
+      <nav aria-label="Main navigation"><a class="active" href="#main">Live monitor</a><a href="#archive">Data archive</a><a href="#experiment">The experiment <span aria-hidden="true">↗</span></a></nav>
+    </div>
+  </header>
+
+  <main id="main" class="shell">
+    <section class="page-heading">
+      <div><p class="eyebrow">FREE-SPACE OPTICAL COMMUNICATIONS <span>/</span> JOHANNESBURG, ZA</p><h1>Live link observatory<span>.</span></h1><p class="intro">A view into light travelling through the atmosphere.<br>Live measurements from our 300 m folded laser link.</p></div>
+      <div class="station"><span class="eyebrow">EXPERIMENT 01</span><span class="station-name">Atmospheric link monitoring</span><span id="clock">All measurement times in UTC</span></div>
+    </section>
+
+    <div id="mode-banner" class="notice" hidden><strong>SIMULATION MODE</strong><span>These are synthetic signals for demonstration. Downloads are labelled as demo data.</span></div>
+    <div class="status-strip" role="status" aria-live="polite"><span class="status-label"><i id="status-dot" class="dot"></i><strong id="connection-label">Connecting</strong></span><span id="status-message">Waiting for the acquisition service…</span><span class="status-time" id="last-update">No capture yet</span></div>
+
+    <section class="metrics" aria-label="Latest capture measurements">
+      <article class="metric"><div class="metric-label"><span class="channel x">CH1</span> X-axis signal</div><div class="metric-value"><span id="x-value">—</span><span class="unit">V</span></div><div class="metric-note">Burst mean <span id="x-std">σ — V</span></div></article>
+      <article class="metric"><div class="metric-label"><span class="channel y">CH2</span> Y-axis signal</div><div class="metric-value"><span id="y-value">—</span><span class="unit">V</span></div><div class="metric-note">Burst mean <span id="y-std">σ — V</span></div></article>
+      <article class="metric"><div class="metric-label"><span class="channel sum">CH3</span> Received SUM</div><div class="metric-value"><span id="sum-value">—</span><span class="unit">V</span></div><div class="metric-note">Detector signal <span id="sum-std">σ — V</span></div></article>
+      <article class="metric"><div class="metric-label"><span class="metric-cross" aria-hidden="true">⊹</span> Within-burst wander</div><div class="metric-value"><span id="wander-value">—</span><span id="position-unit" class="unit">ratio</span></div><div class="metric-note">Radial RMS about centroid <span id="position-calibration">Uncalibrated</span></div></article>
+    </section>
+
+    <section class="plots">
+      <article class="panel signal-panel">
+        <div class="panel-heading"><div><p class="eyebrow">01 / SIGNAL</p><h2>Received signals</h2></div><div class="segmented" role="group" aria-label="Signal chart mode"><button class="selected" id="trend-tab" aria-pressed="true">History</button><button id="waveform-tab" aria-pressed="false">Latest burst</button></div></div>
+        <div class="chart-toolbar"><div class="legend"><span><i class="x-line"></i>X axis</span><span><i class="y-line"></i>Y axis</span><span><i class="sum-line"></i>SUM</span></div><label id="window-control">Window <select id="time-window" aria-label="History time window"><option value="60">1 minute</option><option value="300" selected>5 minutes</option><option value="900">15 minutes</option></select></label></div>
+        <div class="chart-wrap"><canvas id="signal-chart" role="img" aria-label="X, Y and SUM voltage history. Exact latest values are shown above."></canvas><div class="chart-empty" id="signal-empty">Waiting for recorded measurements</div><div id="chart-tooltip" hidden></div></div>
+        <div class="panel-foot"><span id="signal-caption">Capture means · time in UTC · gaps are not interpolated</span><span id="chart-count">0 captures</span></div>
+      </article>
+      <article class="panel wander-panel">
+        <div class="panel-heading"><div><p class="eyebrow">02 / POSITION</p><h2>Beam wander</h2></div><span class="small-tag" id="scatter-tag">X/SUM · Y/SUM</span></div>
+        <p class="chart-description">Recent capture centroids in the selected window.</p>
+        <div class="scatter-wrap"><canvas id="wander-chart" role="img" aria-label="Beam centroid scatter plot. Position is a ratio until calibrated."></canvas><div class="chart-empty" id="wander-empty">Waiting for valid position samples</div></div>
+        <div class="panel-foot"><span><i class="legend-dot"></i> Earlier → latest</span><span id="centroid">X — / Y —</span></div>
+      </article>
+    </section>
+
+    <div class="acquisition-strip"><span><i class="record-icon" aria-hidden="true"></i><strong id="record-state">Waiting to record</strong></span><span>Sample rate <strong id="sample-rate">—</strong></span><span>Burst depth <strong id="burst-depth">—</strong></span><span>Valid position samples <strong id="valid-fraction">—</strong></span><span id="quality-note">No measurements yet</span></div>
+
+    <section id="archive" class="archive-section">
+      <div class="section-heading"><div><p class="eyebrow">RECORDED MEASUREMENTS</p><h2>Research data archive</h2><p>Every acquired sample is saved locally. Download capture summaries or full waveforms.</p></div><button class="button" id="refresh-archive"><span aria-hidden="true">↻</span> Refresh archive</button></div>
+      <div class="table-scroll"><table><thead><tr><th>Session / UTC start</th><th>Source</th><th>Status</th><th>Captures</th><th>Samples / channel</th><th>Download</th></tr></thead><tbody id="sessions-body"><tr><td colspan="6" class="empty-table">Loading the recording archive…</td></tr></tbody></table></div>
+      <div class="archive-footer"><span id="archive-count">—</span><div class="pagination"><button id="previous-page" disabled aria-label="Previous archive page">← Previous</button><button id="next-page" disabled aria-label="Next archive page">Next →</button></div></div>
+      <p class="archive-help">CSV = one summary per capture. Raw CSV.gz = every sample, all four channels and ADC codes. Metadata includes settings and calibration. Active-session downloads include data saved when the request starts.</p>
+      <p id="license-note" class="archive-help"></p>
+    </section>
+
+    <section id="experiment" class="experiment panel">
+      <div class="experiment-copy"><p class="eyebrow">THE EXPERIMENT</p><h2>A folded path.<br> A live atmosphere.</h2><p>A continuous-wave green laser travels 150 m to a mirror and returns to a quadrant photodiode. The breakout box provides X, Y and SUM signals to the USB oscilloscope.</p><a href="https://www.wits.ac.za/oclab/" target="_blank" rel="noopener">Explore the Wits OC Lab <span aria-hidden="true">↗</span></a></div>
+      <div class="experiment-detail">
+        <svg class="link-diagram" viewBox="0 0 620 154" role="img" aria-label="Laser to mirror: 150 metres. Mirror to quadrant photodiode: 150 metres.">
+          <defs><marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L8 4 L0 8" fill="#30816a"/></marker></defs>
+          <rect x="12" y="32" width="93" height="35" fill="#edf1ef" stroke="#c8d2cf"/><text x="58" y="54" text-anchor="middle">LASER</text>
+          <path d="M106 49 H552" stroke="#30816a" stroke-width="2" marker-end="url(#arrow)"/><text x="318" y="35" text-anchor="middle">150 m · outbound</text>
+          <path d="M555 56 V110 H107" fill="none" stroke="#30816a" stroke-width="2" marker-end="url(#arrow)"/><text x="318" y="132" text-anchor="middle">150 m · return</text>
+          <path d="M565 31 V123 M570 35 l8 -8 M570 54 l8 -8 M570 73 l8 -8 M570 92 l8 -8 M570 111 l8 -8" stroke="#71808b"/><text x="553" y="17" text-anchor="middle">MIRROR</text>
+          <rect x="12" y="91" width="93" height="35" fill="#edf1ef" stroke="#c8d2cf"/><text x="58" y="113" text-anchor="middle">QPD</text>
+        </svg>
+        <dl class="equipment"><div><dt>Source</dt><dd id="laser-name">CW532-005 · 532 nm</dd></div><div><dt>Optical path</dt><dd id="path-length">300 m round trip</dd></div><div><dt>Detector</dt><dd id="detector-name">PDP90A</dd></div><div><dt>Acquisition</dt><dd>Hantek 6254BC · USB</dd></div></dl>
+      </div>
+    </section>
+    <p class="measurement-note"><strong>Reading the measurements.</strong> SUM is a voltage proxy for received intensity, not calibrated optical power. Position requires the correct breakout model and calibration; ratio values are not millimetres. Wander RMS is calculated within each burst. Waveform samples are uniformly spaced within a capture; USB captures have gaps and host timestamps are approximate.</p>
+  </main>
+  <footer><div class="shell footer-inner"><span>WITS <span class="footer-divider">/</span> Optical Communications Lab</span><span>Live link observatory <span class="footer-divider">·</span> <a href="/docs">Research API ↗</a></span></div></footer>
+</body>
+</html>

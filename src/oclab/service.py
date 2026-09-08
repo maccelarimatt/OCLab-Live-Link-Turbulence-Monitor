@@ -1,0 +1,152 @@
+from __future__ import annotations
+
+from collections import deque
+import fcntl
+import logging
+import shutil
+import threading
+import time
+
+from .acquisition import DemoSource, HardwareSource, analyse
+from .config import Settings
+from .storage import Store, ns_to_utc
+
+logger = logging.getLogger(__name__)
+
+
+class Recorder:
+    def __init__(self, settings: Settings, source=None):
+        self.settings = settings
+        self.store = Store(settings.data_dir)
+        self.source = source or (DemoSource(settings) if settings.mode == "demo" else HardwareSource(settings))
+        self.stop_event = threading.Event()
+        self.mutex = threading.Lock()
+        self.latest = None
+        self.session_id = None
+        self.state = "starting"
+        self.message = "Connecting to acquisition source"
+        self.last_success = None
+        self.free_disk_mb = None
+        self.thread = None
+        self.file_lock = None
+        self.recent = deque(maxlen=600)
+
+    def start(self):
+        self.file_lock = (self.store.root / ".recorder.lock").open("a")
+        try:
+            fcntl.flock(self.file_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            self.file_lock.close()
+            raise RuntimeError("Another recorder is using this data directory. Run exactly one worker.") from exc
+        try:
+            self.store.recover()
+            self.thread = threading.Thread(target=self.run, name="oclab-recorder", daemon=True)
+            self.thread.start()
+        except Exception:
+            self.file_lock.close()
+            raise
+
+    def stop(self):
+        self.stop_event.set()
+        if self.thread:
+            self.thread.join(timeout=30)
+            if self.thread.is_alive():
+                # Keep the process lock held; systemd will kill a stuck USB operation.
+                logger.error("USB worker did not stop within 30 seconds")
+                return
+        if self.file_lock:
+            self.file_lock.close()
+
+    def set_status(self, state, message):
+        with self.mutex:
+            self.state, self.message = state, message
+
+    def snapshot(self):
+        with self.mutex:
+            age = time.monotonic() - self.last_success if self.last_success is not None else None
+            stale = age is None or age > max(5, self.settings.capture_interval_s * 3)
+            return {"status": {
+                "state": self.state, "message": self.message, "mode": self.settings.mode,
+                "stale": stale, "last_capture_age_s": age, "session_id": self.session_id,
+                "recording": self.state == "recording" and not stale,
+                "free_disk_mb": self.free_disk_mb,
+            }, "latest": self.latest}
+
+    def captures_since(self, capture_id):
+        with self.mutex:
+            return [s for s in self.recent if s["capture_id"] > capture_id]
+
+    def close_source(self):
+        try:
+            self.source.close()
+        except Exception:
+            logger.exception("Error closing acquisition source")
+
+    def end_session(self, status="complete"):
+        if self.session_id:
+            self.store.finish_session(self.session_id, status)
+            self.session_id = None
+
+    def run(self):
+        session_started = 0
+        previous_start = None
+        try:
+            while not self.stop_event.is_set():
+                start = time.monotonic()
+                try:
+                    free = shutil.disk_usage(self.store.root).free / 1024**2
+                    with self.mutex:
+                        self.free_disk_mb = free
+                    if free < self.settings.minimum_free_disk_mb:
+                        self.set_status("storage_error", "Recording paused: disk space is below the configured reserve")
+                        self.close_source()
+                        self.end_session("interrupted")
+                        self.stop_event.wait(self.settings.retry_interval_s)
+                        continue
+                    started_ns = time.time_ns()
+                    try:
+                        capture = self.source.capture()
+                        received_ns = time.time_ns()
+                        elapsed = time.monotonic() - start
+                        summary, preview = analyse(capture, self.settings)
+                    except Exception:
+                        logger.exception("Acquisition failed; retrying")
+                        self.set_status("disconnected", "Oscilloscope unavailable or capture failed. Check USB, permissions and service logs; reconnecting automatically.")
+                        self.close_source()
+                        self.end_session("interrupted")
+                        self.stop_event.wait(self.settings.retry_interval_s)
+                        continue
+                    summary.update(source=self.settings.mode, host_started_ns=started_ns,
+                                   host_received_ns=received_ns, host_started_utc=ns_to_utc(started_ns),
+                                   host_received_utc=ns_to_utc(received_ns), acquisition_elapsed_s=elapsed,
+                                   since_previous_start_s=None if previous_start is None else start - previous_start)
+                    if self.session_id is None or start - session_started >= self.settings.session_duration_s:
+                        self.end_session()
+                        self.session_id = self.store.start_session(self.settings)
+                        session_started = start
+                    saved = self.store.save(self.session_id, capture, summary)
+                    previous_start = start
+                    with self.mutex:
+                        self.latest = {"summary": saved, "preview": preview}
+                        self.recent.append(saved)
+                        self.last_success = time.monotonic()
+                        self.state = "recording"
+                        self.message = "Synthetic data is being recorded" if self.settings.mode == "demo" else "Acquiring and saving to disk"
+                except Exception:
+                    logger.exception("Persistence failed; capture not published")
+                    self.set_status("storage_error", "Recording paused: unable to save data. Check disk and service logs.")
+                    self.close_source()
+                    try:
+                        self.end_session("interrupted")
+                    except Exception:
+                        logger.exception("Unable to mark interrupted recording")
+                    self.stop_event.wait(self.settings.retry_interval_s)
+                    continue
+                self.stop_event.wait(max(0, self.settings.capture_interval_s - (time.monotonic() - start)))
+        finally:
+            self.close_source()
+            try:
+                self.end_session()
+            except Exception:
+                logger.exception("Could not finalise session")
+            self.set_status("stopped", "Recorder stopped")

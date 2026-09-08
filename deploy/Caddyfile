@@ -1,0 +1,6 @@
+# Replace with your real DNS name. Caddy provisions HTTPS automatically.
+link.example.org {
+    encode zstd gzip
+    # Caddy automatically flushes text/event-stream responses immediately.
+    reverse_proxy 127.0.0.1:8000
+}

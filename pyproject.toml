@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oclab-live-link"
+version = "0.1.0"
+description = "Wits OC Lab laser-link acquisition, live monitoring and research archive"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.34,<1",
+  "numpy>=2,<3",
+  "hantek6254bc-linux @ git+https://github.com/maccelarimatt/Hantek6254BC-Linux-Driver@be5663df4f0a93e96c039071f9502c698da678a1",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10", "httpx>=0.28,<1"]
+
+[project.scripts]
+oclab = "oclab.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+oclab = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

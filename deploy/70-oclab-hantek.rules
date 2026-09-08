@@ -1,0 +1,4 @@
+# Group access supports the headless systemd service; uaccess supports desktop use.
+# USB identity from the upstream Hantek6254BC-Linux-Driver udev rule.
+SUBSYSTEM=="usb", ATTR{idVendor}=="04b5", ATTR{idProduct}=="6cde", GROUP="oclab", MODE="0660", TAG+="uaccess"
+

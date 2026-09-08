@@ -1,0 +1,46 @@
+# Copy to config.local.toml and run: oclab --config config.local.toml
+mode = "hardware"                     # "demo" explicitly generates synthetic data
+data_dir = "./data"
+host = "127.0.0.1"                     # Use a reverse proxy for public HTTPS
+port = 8000
+capture_interval_s = 0.5               # Minimum time between capture starts
+session_duration_s = 3600              # Automatically rotate recording sessions
+minimum_free_disk_mb = 1024            # Pause recording below this; never delete data
+retry_interval_s = 5
+
+[scope]
+sample_rate = 25000                    # Samples/s WITHIN each burst, per channel
+depth = 4096
+volts_per_div = [1.0, 1.0, 1.0, 1.0]   # Scope input ranges, before probe multipliers
+probe_factors = [1.0, 1.0, 1.0, 1.0]   # 1 for direct BNC; match actual probes
+x_channel = 1
+y_channel = 2
+sum_channel = 3
+# bus = 1                             # Optional USB selector for multiple scopes
+# address = 8                          # USB addresses change on reconnection
+
+[calibration]
+# Corrected signals = measured volts minus these dark/centre offsets.
+x_offset_v = 0.0
+y_offset_v = 0.0
+sum_offset_v = 0.0
+minimum_sum_v = 0.05                   # No position estimates below this threshold
+position_model = "difference_over_sum" # Or "voltage" for already-normalised outputs
+# Set BOTH scales after calibrating your breakout/detector at the measurement plane.
+# difference_over_sum: mm per unit ratio; voltage: mm per volt.
+# x_scale_mm = 1.0
+# y_scale_mm = 1.0
+notes = "Position uncalibrated. Verify voltages against a known reference."
+
+[experiment]
+title = "Live laser link"
+institution = "University of the Witwatersrand"
+laboratory = "Optical Communications Lab"
+laser = "CW532-005"
+wavelength_nm = 532.0
+one_way_distance_m = 150.0
+detector = "PDP90A"
+location = "Johannesburg, South Africa"
+data_license = "Not specified — contact the lab for reuse terms"
+contact = ""                          # Public contact email or URL
+
