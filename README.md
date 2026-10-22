@@ -85,7 +85,7 @@ sudo install -m 0644 deploy/71-oclab-pico-weather.rules /etc/udev/rules.d/71-ocl
 sudo udevadm control --reload-rules
 ```
 
-Log out and back in for the group change, then replug the Pico. **Close Thonny (or any serial monitor) before starting**: it holds the port open and the recorder will report the station as unavailable.
+Log out and back in for the group change, then replug the Pico. **Close Thonny (or any serial monitor) before starting**: it holds the port open and the recorder will report the station as unavailable. The firmware must be saved **on the Pico as `main.py`** (MicroPython only runs `main.py` automatically at power-up); a Pico without it, or one stopped by Thonny, sits at the `>>>` prompt and sends nothing, which the dashboard reports as "port open but silent". Replug the Pico after closing Thonny so `main.py` starts.
 
 `config.example.toml` selects **hardware** mode. Connect X to CH1, Y to CH2, and SUM to CH3. Close other scope applications before starting; only one process can claim the interface. The service will keep serving the dashboard while retrying an unavailable scope.
 

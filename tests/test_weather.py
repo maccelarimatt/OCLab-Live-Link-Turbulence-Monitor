@@ -315,6 +315,17 @@ def test_usb_serial_disconnect_and_reconnect(tmp_path):
     assert len(rows(store, "wind_samples")) == 30  # Nothing lost across the reconnect
 
 
+def test_silent_port_reports_firmware_not_running(tmp_path):
+    weather = WeatherRecorder(settings(tmp_path), Store(str(tmp_path)), LineSource([], []))
+    weather.silence_limit_s = 0.2
+    weather.start()
+    try:
+        wait_for(lambda: weather.snapshot()["counters"]["connection_errors"] >= 1)
+        assert "main.py" in weather.snapshot()["message"]
+    finally:
+        assert weather.stop()
+
+
 def test_failed_weather_write_keeps_samples_for_retry(tmp_path, monkeypatch):
     s = settings(tmp_path)
     store = Store(str(tmp_path))

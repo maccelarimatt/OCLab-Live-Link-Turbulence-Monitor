@@ -48,6 +48,10 @@ class ParseError(ValueError):
     pass
 
 
+class SilentPort(TimeoutError):
+    """The port opened but the firmware sent nothing (for example, a Pico idle at the >>> prompt)."""
+
+
 def _number(text, kind=float):
     """Empty means missing (None). NaN/Inf from a failed read are also missing."""
     text = text.strip()
@@ -250,6 +254,8 @@ class WeatherRecorder:
         self.recent = {"W": deque(), "E": deque()}
         self.pending = {"W": [], "E": [], "header": []}
         self.committed_through_ns = None
+        # An open port with no lines for this long is closed and reopened.
+        self.silence_limit_s = max(2 * settings.weather.stale_after_s, 5)
         self.counters = dict(lines=0, wind=0, env=0, headers=0, comments=0, malformed=0,
                              connection_errors=0, write_errors=0, dropped=0)
 
@@ -275,7 +281,7 @@ class WeatherRecorder:
 
     def run(self):
         last_flush = time.monotonic()
-        silence_limit = max(2 * self.settings.weather.stale_after_s, 5)
+        silence_limit = self.silence_limit_s
         try:
             while not self.stop_event.is_set():
                 try:
@@ -292,7 +298,7 @@ class WeatherRecorder:
                             last_line = now
                             self.handle(line, received_ns, now)
                         elif now - last_line > silence_limit:
-                            raise TimeoutError(f"No weather data for {silence_limit:.0f} s")
+                            raise SilentPort(f"No weather data for {silence_limit:.0f} s")
                         if now - last_flush >= 1:
                             self.flush()
                             last_flush = now
@@ -301,7 +307,10 @@ class WeatherRecorder:
                     with self.mutex:
                         self.counters["connection_errors"] += 1
                         self.state = "disconnected"
-                        self.message = "Weather station unavailable. Check USB, dialout group membership and that Thonny is closed; reconnecting automatically."
+                        if isinstance(exc, SilentPort):
+                            self.message = "Weather port open but silent. Check that the firmware is saved on the Pico as main.py and running (a Pico at the >>> prompt sends nothing); reconnecting automatically."
+                        else:
+                            self.message = "Weather station unavailable. Check USB, dialout group membership and that Thonny is closed; reconnecting automatically."
                     self.close_source()
                     self.flush()
                     self.stop_event.wait(self.settings.retry_interval_s)
