@@ -29,6 +29,14 @@ The Linux PC must have direct USB access to the scope. The same PC serves the we
 
 ## Quick start on Linux
 
+On the acquisition PC, one command sets everything up and starts recording:
+
+```sh
+./run.sh            # or: ./run.sh --demo   ./run.sh --setup-only   ./run.sh --flash   ./run.sh --help
+```
+
+It is safe to run every time. It finds or installs Python 3.12+ (deadsnakes on Ubuntu/Pop!_OS), builds or repairs `.venv` when the dependencies change, creates `config.local.toml` if missing, installs the scope and Pico udev rules and `oclab`/`dialout` group membership (listing each `sudo` command first; new groups are applied with `sg`, so no logout is needed), checks that the Pico is streaming and offers to install its firmware if it is silent, then starts the app. Extra options such as `--host 0.0.0.0` pass through to `oclab`. The manual steps below do the same things individually.
+
 Python 3.12 or newer is required (for example Ubuntu 24.04). On Ubuntu/Pop!_OS with a suitable Python version:
 
 ```sh
