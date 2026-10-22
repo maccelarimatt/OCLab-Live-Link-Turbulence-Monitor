@@ -1,0 +1,5 @@
+# Optional: Raspberry Pi Pico W weather station (USB VID 2e8a, CDC serial /dev/ttyACM*).
+# Group dialout supports the headless systemd service; uaccess supports desktop use.
+# ID_MM_DEVICE_IGNORE stops ModemManager briefly probing the port when it appears.
+ATTRS{idVendor}=="2e8a", ENV{ID_MM_DEVICE_IGNORE}="1"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="2e8a", GROUP="dialout", MODE="0660", TAG+="uaccess"

@@ -6,6 +6,8 @@ After=network.target
 Type=simple
 User=oclab
 Group=oclab
+# The Pico W weather station is a USB serial device (/dev/ttyACM*), group dialout.
+SupplementaryGroups=dialout
 WorkingDirectory=/opt/oclab
 ExecStart=/opt/oclab/.venv/bin/oclab --config /etc/oclab/config.toml
 Restart=on-failure
@@ -18,7 +20,7 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-# USB access is needed; do not set PrivateDevices=true.
+# USB and serial access are needed; do not set PrivateDevices=true.
 ReadWritePaths=/var/lib/oclab
 RestrictSUIDSGID=true
 
