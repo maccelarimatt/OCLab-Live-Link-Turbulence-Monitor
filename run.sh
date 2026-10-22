@@ -151,7 +151,7 @@ if [ "$demo" = 0 ]; then
     if pgrep -x thonny >/dev/null 2>&1 || pgrep -f '[t]honny' >/dev/null 2>&1; then
         warn "Thonny is running and may hold the Pico's port. Close it (or disconnect it from the Pico)."
     fi
-    probe=$(with_groups .venv/bin/python - <<'PY' || true
+    probe_pico() { with_groups .venv/bin/python - <<'PY' || true
 import sys, time
 import serial
 from serial.tools import list_ports
@@ -168,7 +168,8 @@ while time.monotonic() < end:
 s.close()
 print("streaming" if b"\nW," in data else "silent", ports[0])
 PY
-)
+    }
+    probe=$(probe_pico)
     state=${probe%% *}; port=$(echo "$probe" | cut -d' ' -f2)
     case "$state" in
         streaming) note "Streaming on $port" ;;
@@ -181,7 +182,14 @@ PY
         if confirm "Install firmware/pico_weather/main.py on the Pico as main.py and restart it?"; then
             .venv/bin/python -c 'import mpremote' 2>/dev/null || .venv/bin/python -m pip install -q mpremote==1.29.0
             with_groups .venv/bin/python -m mpremote connect "$port" cp firmware/pico_weather/main.py :main.py + reset
-            note "Firmware installed; the Pico is restarting."
+            note "Firmware installed; checking the Pico restarts and streams..."
+            sleep 3
+            probe=$(probe_pico)
+            if [ "${probe%% *}" = streaming ]; then
+                note "Streaming again on ${probe#streaming }"
+            else
+                warn "The Pico is not streaming after the update ($probe). Check its output in Thonny."
+            fi
         fi
     fi
 fi
