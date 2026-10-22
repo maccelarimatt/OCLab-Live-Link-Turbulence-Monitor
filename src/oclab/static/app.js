@@ -6,6 +6,8 @@ const utc = (value) => new Date(value).toISOString().slice(11, 19);
 const colours = ["#4778aa", "#b68042", "#2d8068"];
 let config, latest, history = [], plotMode = "history", windowSeconds = 300, archiveOffset = 0;
 let lastEventAt = 0, connection, signalPoints = [], signalBounds, archiveBusy = false;
+let weather, windHistory = [];
+const ago = (s) => Number.isFinite(s) ? `${fmt(s, s < 10 ? 1 : 0)} s ago` : "no data";
 
 async function fetchJSON(url) {
   const response = await fetch(url, {signal: AbortSignal.timeout(15000)});
@@ -45,10 +47,37 @@ function renderSnapshot(snapshot) {
     $("quality-note").textContent = s.clipped_fraction > 0 ? `${fmt(s.clipped_fraction * 100, 1)}% clipped · check ranges` : s.low_sum_fraction > 0 ? `${fmt(s.low_sum_fraction * 100, 1)}% below SUM threshold` : "No clipping or low-SUM flags";
     $("last-update").textContent = `${healthy ? "Updated" : "Last capture"} ${utc(s.host_received_utc)} UTC · ${fmt(status.last_capture_age_s, 0)} s ago`;
     $("centroid").textContent = `X ${fmt(s.position_x)} / Y ${fmt(s.position_y)}`;
+    if (s.weather_status) {
+      $("weather-capture").textContent = `Last capture: weather ${s.weather_status} · wind ${fmt(s.wind_mean_ms, 1)} ± ${fmt(s.wind_std_ms, 1)} m/s (n ${s.wind_n}) · TI ${fmt(s.wind_ti, 2)} · ${fmt(s.air_temp_c, 1)} °C`;
+    }
   } else {
     $("last-update").textContent = "No capture yet";
   }
+  if (snapshot.weather) renderWeather(snapshot.weather);
   drawCharts();
+}
+
+function renderWeather(w) {
+  weather = w;
+  const env = w.env || {}, wind = w.wind || {}, last = w.wind_last_1s;
+  const live = w.enabled && !w.stale && w.state === "receiving";
+  $("weather").classList.toggle("stale", !live);
+  $("weather-tag").textContent = !w.enabled ? "DISABLED" : w.source === "demo" ? "SYNTHETIC · DEMO" : w.port ? `PICO W · ${w.port.split("/").pop()}` : "PICO W · NOT FOUND";
+  $("weather-tag").classList.toggle("warn", w.enabled && !live);
+  $("wx-wind").textContent = fmt(last ? last.mean_ms : wind.wind_ms, 1);
+  $("wx-wind-note").textContent = wind.clip === 1 ? "ADC clipped · wind above range" : last ? `1 s mean · max ${fmt(last.max_ms, 1)} · ${last.n} samples` : "Latest sample";
+  $("wx-air").textContent = fmt(env.baro_c, 1);
+  $("wx-rh").textContent = fmt(env.dht_rh, 0);
+  $("wx-rh-note").textContent = `DHT11 · ${fmt(env.dht_c, 0)} °C · ±5 %RH`;
+  $("wx-pressure").textContent = fmt(env.baro_hpa, 1);
+  $("wx-light").textContent = fmt(env.light_v, 2);
+  $("wx-light-note").textContent = w.header?.light === "bpw34" ? `BPW34 · ${fmt(env.light_x, 1)} µA` : `LDR · ${Number.isFinite(env.light_x) ? fmt(env.light_x / 1000, 1) + " kΩ" : "—"}`;
+  const skipped = w.counters?.malformed ? ` · ${count(w.counters.malformed)} malformed lines skipped` : "";
+  $("weather-status").textContent = w.enabled ? `${w.message} · wind ${ago(w.wind_age_s)} · environment ${ago(w.env_age_s)}${skipped}` : w.message;
+  if (last && (!windHistory.length || last.t_ns / 1e9 > windHistory[windHistory.length - 1].t + 0.5)) {
+    windHistory.push({t: last.t_ns / 1e9, mean: last.mean_ms, max: last.max_ms});
+    if (windHistory.length > 3600) windHistory = windHistory.slice(-3600);
+  }
 }
 
 function offline() {
@@ -58,6 +87,8 @@ function offline() {
   $("connection-label").textContent = "Connection lost";
   $("status-message").textContent = "Reconnecting to the service. Displayed values may be out of date.";
   $("record-state").textContent = "Recorder status unknown";
+  $("weather").classList.add("stale");
+  $("weather-status").textContent = "Weather status unknown while reconnecting to the service.";
 }
 
 function connect() {
@@ -94,7 +125,7 @@ function drawSignal() {
     points = p.time_s.map((t, i) => ({t: t * 1000, values: [p.x_v[i], p.y_v[i], p.sum_v[i]]}));
     xMin = 0; xMax = latest.summary.burst_duration_s * 1000;
   } else {
-    points = selectedHistory().map((s) => ({t: s.host_received_ns / 1e9, values: [s.x_mean_v, s.y_mean_v, s.sum_mean_v], gap: s.since_previous_start_s}));
+    points = selectedHistory().map((s) => ({t: s.host_received_ns / 1e9, values: [s.x_mean_v, s.y_mean_v, s.sum_mean_v], gap: s.since_previous_start_s, wind: s.wind_mean_ms}));
     xMax = points.length ? points[points.length - 1].t : Date.now() / 1000;
     xMin = xMax - windowSeconds;
   }
@@ -164,7 +195,42 @@ function drawWander() {
   }
 }
 
-function drawCharts() { drawSignal(); drawWander(); }
+function drawWind() {
+  const {ctx, w, h} = surface("wind-chart");
+  const margin = {l: 46, r: 17, t: 20, b: 31};
+  const width = w - margin.l - margin.r, height = h - margin.t - margin.b;
+  const xMax = windHistory.length ? windHistory[windHistory.length - 1].t : Date.now() / 1000, xMin = xMax - windowSeconds;
+  const points = windHistory.filter((p) => p.t >= xMin);
+  $("wind-empty").hidden = points.length > 0;
+  let high = 5;
+  for (const p of points) high = Math.max(high, p.max * 1.15);
+  const X = (t) => margin.l + (t - xMin) / (xMax - xMin) * width;
+  const Y = (v) => margin.t + (high - v) / high * height;
+  ctx.fillStyle = "#819097"; ctx.textAlign = "left"; ctx.fillText("m/s", 10, 12);
+  for (let i = 0; i <= 4; i++) {
+    const v = high * i / 4, y = Y(v);
+    ctx.strokeStyle = "#e9eded"; ctx.beginPath(); ctx.moveTo(margin.l, y); ctx.lineTo(w - margin.r, y); ctx.stroke();
+    ctx.fillStyle = "#8a969b"; ctx.textAlign = "right"; ctx.fillText(v.toFixed(1), margin.l - 9, y + 3);
+  }
+  for (let i = 0; i <= 4; i++) {
+    const t = xMin + (xMax - xMin) * i / 4, x = X(t);
+    ctx.strokeStyle = "#f0f2f1"; ctx.beginPath(); ctx.moveTo(x, margin.t); ctx.lineTo(x, h - margin.b); ctx.stroke();
+    ctx.fillStyle = "#8a969b"; ctx.textAlign = i === 0 ? "left" : i === 4 ? "right" : "center"; ctx.fillText(utc(t * 1000), x, h - 10);
+  }
+  for (const [key, colour, lineWidth] of [["max", "#9fb3bf", 1], ["mean", "#3f6177", 1.5]]) {
+    ctx.strokeStyle = colour; ctx.lineWidth = lineWidth; ctx.beginPath();
+    points.forEach((p, i) => {
+      // Missing seconds (disconnects) are gaps, never interpolated.
+      if (!i || p.t - points[i - 1].t > 3) ctx.moveTo(X(p.t), Y(p[key])); else ctx.lineTo(X(p.t), Y(p[key]));
+    });
+    ctx.stroke();
+  }
+  if (points.length) {
+    const p = points[points.length - 1]; ctx.fillStyle = "#3f6177"; ctx.beginPath(); ctx.arc(X(p.t), Y(p.mean), 2.5, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+function drawCharts() { drawSignal(); drawWander(); drawWind(); }
 
 function cell(row, content, className) {
   const td = document.createElement("td");
@@ -192,7 +258,7 @@ async function loadArchive() {
       cell(row, item.status[0].toUpperCase() + item.status.slice(1), `session-state ${item.status}`);
       cell(row, count(item.capture_count)); cell(row, count(item.sample_count));
       const links = document.createElement("div"); links.className = "download-links";
-      for (const [file, label] of [["summary.csv", "CSV ↓"], ["raw.csv.gz", "Raw ↓"], ["metadata.json", "Metadata ↓"]]) {
+      for (const [file, label] of [["summary.csv", "CSV ↓"], ["raw.csv.gz", "Raw ↓"], ["weather.csv", "Weather ↓"], ["metadata.json", "Metadata ↓"]]) {
         const a = document.createElement("a"); a.href = `/api/sessions/${encodeURIComponent(item.id)}/${file}`; a.textContent = label;
         a.setAttribute("aria-label", `Download ${file} for session ${item.id}`); a.download = `${item.id}-${file}`; links.append(a);
       }
@@ -226,12 +292,13 @@ $("signal-chart").addEventListener("pointermove", (event) => {
   const x = event.clientX - event.target.getBoundingClientRect().left;
   const t = signalBounds.min + (x - signalBounds.left) / signalBounds.width * (signalBounds.max - signalBounds.min);
   const p = signalPoints.reduce((a, b) => Math.abs(a.t - t) < Math.abs(b.t - t) ? a : b);
-  $("chart-tooltip").textContent = `${plotMode === "waveform" ? p.t.toFixed(2) + " ms" : utc(p.t * 1000) + " UTC"} | X ${fmt(p.values[0])} · Y ${fmt(p.values[1])} · SUM ${fmt(p.values[2])} V`;
+  $("chart-tooltip").textContent = `${plotMode === "waveform" ? p.t.toFixed(2) + " ms" : utc(p.t * 1000) + " UTC"} | X ${fmt(p.values[0])} · Y ${fmt(p.values[1])} · SUM ${fmt(p.values[2])} V${p.wind !== undefined ? ` · wind ${fmt(p.wind, 1)} m/s` : ""}`;
   $("chart-tooltip").hidden = false;
 });
 $("signal-chart").addEventListener("pointerleave", () => { $("chart-tooltip").hidden = true; });
 new ResizeObserver(drawCharts).observe($("signal-chart").parentElement);
 new ResizeObserver(drawWander).observe($("wander-chart").parentElement);
+new ResizeObserver(drawWind).observe($("wind-chart").parentElement);
 setInterval(() => {
   $("clock").textContent = `${new Date().toISOString().slice(0, 10)} / ${utc(Date.now())} UTC`;
   if (lastEventAt && Date.now() - lastEventAt > 6000) offline();
@@ -266,6 +333,11 @@ async function init() {
     addHistory(data.items.filter((item) => item.session_id === newestSession && item.source === config.mode));
     drawCharts();
   } catch (error) { offline(); }
+  try {
+    const recent = await fetchJSON("/api/weather/history?seconds=900");
+    windHistory = recent.wind.map((p) => ({t: p.t_ns / 1e9, mean: p.mean_ms, max: p.max_ms}));
+    drawWind();
+  } catch (error) { console.error(error); }
   connect(); loadArchive();
 }
 init();
