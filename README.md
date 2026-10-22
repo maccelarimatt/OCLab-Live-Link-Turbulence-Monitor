@@ -9,7 +9,7 @@ CW532-005 laser ── 150 m ── mirror ── 150 m ── PDP90A quadrant d
                                                   │ X / Y / SUM
                                            Hantek 6254BC
                                                   │ USB / libusb
-                                          Linux PC + recorder
+                                          Linux PC + recorder ── USB serial ── Pico W weather station
                                              ├── SQLite archive
                                              └── HTTPS dashboard + downloads
 ```
@@ -24,6 +24,7 @@ The Linux PC must have direct USB access to the scope. The same PC serves the we
 - Automatic recording without opening a browser; automatic USB reconnect; explicit low-disk and failed-write states; hourly session rotation.
 - Durable SQLite transactions containing **every sample in every successfully recorded capture**, upstream ADC wire codes, host UTC timestamps, acquisition timing, and experiment/calibration metadata.
 - Public CSV summaries, compressed raw CSV downloads, metadata JSON, and a documented read-only API.
+- A Raspberry Pi Pico W weather station (cup anemometer, BMP280, DHT11, light sensor) recorded continuously in its own thread, with wind statistics and environment values attached to every capture.
 - Explicit simulation mode. Hardware errors never switch to synthetic data.
 
 ## Quick start on Linux
@@ -67,6 +68,16 @@ Log out and back in so your new group membership takes effect, then unplug/recon
 .venv/bin/oclab --config config.local.toml
 ```
 
+For the Pico W weather station, add yourself to `dialout` (the group that owns `/dev/ttyACM*`) and optionally install its udev rule, which also stops ModemManager briefly grabbing the port on Ubuntu/Pop!_OS:
+
+```sh
+sudo usermod -aG dialout "$USER"
+sudo install -m 0644 deploy/71-oclab-pico-weather.rules /etc/udev/rules.d/71-oclab-pico-weather.rules
+sudo udevadm control --reload-rules
+```
+
+Log out and back in for the group change, then replug the Pico. **Close Thonny (or any serial monitor) before starting**: it holds the port open and the recorder will report the station as unavailable.
+
 `config.example.toml` selects **hardware** mode. Connect X to CH1, Y to CH2, and SUM to CH3. Close other scope applications before starting; only one process can claim the interface. The service will keep serving the dashboard while retrying an unavailable scope.
 
 For another machine on the local network, pass `--host 0.0.0.0` and browse to the acquisition PC's IP address on port 8000. For public access use HTTPS as described below.
@@ -108,6 +119,39 @@ Position statistics exclude samples where corrected SUM is below `minimum_sum_v`
 
 Before research collection, check the driver against a known voltage reference and the scope's calibration output, choose suitable channel ranges, check DC offsets/no clipping, and measure the detector/breakout position calibration at your measurement plane. The [driver's documented limitations](https://github.com/maccelarimatt/Hantek6254BC-Linux-Driver#current-limitations) apply. Configuration changes require a restart, creating a new session with new metadata.
 
+### Weather station
+
+A Raspberry Pi Pico W streams newline-terminated ASCII over USB CDC serial (VID 0x2E8A, 115200 baud). Its firmware and line format are fixed; the application only reads them:
+
+```text
+# pico-weather v2.1 wind=10Hz anemo=4-20mA shunt=165.0ohm range=30.0m/s light=ldr baro=BMP280 dht=yes
+W,t_ms,v_adc,i_ma,wind_ms,clip                                  # 10 Hz
+E,t_ms,dht_c,dht_rh,baro_hpa,baro_c,light_v,light_x             # 1 Hz
+```
+
+- The reader runs in its own thread, separate from the scope. A scope USB failure does not stop weather logging, and a serial failure does not stop scope capture. Weather writes are covered by the same single-writer lock.
+- The port is auto-detected by USB VID unless `[weather].port` is set (prefer a `/dev/serial/by-id/...` path if several RP2040 boards are attached). Unplugging, a closed port or 10 s without data (twice `stale_after_s`, at least 5 s) triggers automatic reconnection every `retry_interval_s`.
+- Time basis: `host_received_ns` is `time.time_ns()` when each line is received, so it includes USB/serial buffering latency. The Pico `t_ms` uptime counter is kept as an auxiliary column; it wraps and is not UTC.
+- Empty fields (missing sensor or failed read) are stored as null, never 0. Malformed or partial lines, which are common at connect time, are skipped and counted (`counters.malformed` in `/api/weather/live`).
+- `# key=value` header lines are parsed and stored in `weather_headers` and the session metadata. The Pico prints its header at boot, so it is null if the Pico started before the recorder connected; reset the Pico to record it.
+- Samples are kept in memory for live use and committed in one SQLite transaction about once per second. Writes pause below the disk reserve; up to about 10 minutes of unsaved samples are held, then the oldest are dropped and counted.
+- In hardware mode weather data is never fabricated: an absent station gives `weather_status = "missing"` and null fields. Demo mode uses a labelled synthetic station (`source = "demo"`).
+
+Each capture summary gains weather fields computed from samples with `host_received_ns − association_window_s < host time ≤ host_received_ns` of that capture:
+
+| Field | Meaning |
+| --- | --- |
+| `wind_mean_ms`, `wind_std_ms`, `wind_max_ms`, `wind_n` | Mean, population std, maximum and count of non-null wind samples in the window. |
+| `wind_ti` | Turbulence intensity `std/mean`; null when the mean is below 1 m/s. |
+| `taylor_ok` | Mean ≥ 1 m/s and TI < 0.5 (a rough frozen-turbulence check). |
+| `air_temp_c`, `pressure_hpa` | BMP280 temperature (the air-temperature reference) and station pressure, not reduced to sea level. |
+| `dht_temp_c`, `rh_pct` | DHT11 temperature and relative humidity (about ±2 °C and ±5 %RH). |
+| `light_v`, `ldr_ohm` | Light-sensor voltage and the firmware's `light_x` (LDR ohms with `light=ldr`, photocurrent µA with `light=bpw34`). |
+| `weather_age_s` | Age of the environment sample used, relative to the capture. |
+| `weather_status` | `ok` (wind and environment both within `stale_after_s`), `stale`, `missing` or `disabled`. |
+
+**Limitations.** The cup anemometer has a distance constant of about 2–3 m, so its readings are smoothed and wind statistics are **not turbulence-resolving**; they describe mean conditions near the link, not the optical turbulence along it. **Cn² is not measured** by any of these sensors. The station measures at a single point. Light is an uncalibrated relative level. Session metadata (`schema_version` 2) records the header, sensor list, association rule and these caveats.
+
 ### Supported scope settings
 
 Sample rates: 25 k, 50 k, 125 k, 250 k, 500 k, 1.25 M, 2.5 M, 5 M, 12.5 M, 25 M, 50 M, 125 M and 250 M samples/s. Depth: 4,096, 8,192 or 16,384 samples/channel. Each channel's volts/div must be one of `0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10`. The application uses auto trigger for unattended capture. Probe factors must match the physical probes; direct BNC connections use 1.
@@ -118,11 +162,12 @@ The archive is `data_dir/recordings.sqlite3` (SQLite WAL mode). Each capture ato
 
 | Download | Contents |
 | --- | --- |
-| `summary.csv` | One row per capture: source, IDs, host timestamps, acquisition timing, voltage means/std, position, radial RMS and quality fractions. |
+| `summary.csv` | One row per capture: source, IDs, host timestamps, acquisition timing, voltage means/std, position, radial RMS, quality fractions and, from schema version 2, the weather fields above (appended after the original columns). |
 | `raw.csv.gz` | One row per sample: capture ID, source, host timestamps, relative sample time, all four probe-corrected voltages and all four raw wire codes. Opens with pandas or gzip. |
+| `weather.csv` | Every wind (`kind=W`) and environment (`kind=E`) sample from the session start minus `association_window_s` to the session end, in host time order. Includes host timestamps, source, Pico `t_ms`, parsed fields and the raw line; fields that do not apply to a row, and missing sensor values, are empty. |
 | `metadata.json` | Session counts/state, driver revision, software version, channel mapping, acquisition settings, calibration, experiment description and reuse terms. |
 
-Active-session downloads are bounded at the highest committed capture ID when that request starts; the response header `X-Export-Through-Capture-ID` identifies the boundary. Separate downloads of an active session can have different boundaries. Use a completed session for a matching summary/raw/metadata set. Exports stream in bounded batches without keeping a long-lived SQLite read transaction; at most two exports run at once (HTTP 429 otherwise).
+Active-session downloads are bounded at the highest committed capture ID when that request starts; the response header `X-Export-Through-Capture-ID` identifies the boundary. Separate downloads of an active session can have different boundaries. Weather exports for an active session end at the newest committed weather row; the headers `X-Export-Weather-From-NS` and `X-Export-Weather-Through-NS` give the boundaries. Weather is a continuous time series not tied to sessions, so adjacent sessions' weather exports overlap by the association window. Use a completed session for a matching summary/raw/metadata set. Exports stream in bounded batches without keeping a long-lived SQLite read transaction; at most two exports run at once (HTTP 429 otherwise).
 
 ```python
 import pandas as pd
@@ -130,6 +175,8 @@ import pandas as pd
 base = "https://YOUR-DOMAIN/api/sessions/SESSION-ID"
 summary = pd.read_csv(base + "/summary.csv")
 raw = pd.read_csv(base + "/raw.csv.gz", compression="gzip")
+weather = pd.read_csv(base + "/weather.csv")
+wind = weather[weather.kind == "W"]
 # Analyse separate bursts; do not assume adjacent capture IDs are contiguous samples.
 first_burst = raw[raw.capture_id == raw.capture_id.iloc[0]]
 ```
@@ -158,16 +205,19 @@ Interactive schema: `/docs`. All application endpoints are read-only; there are 
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /api/config` | Public experiment and acquisition configuration; excludes host and disk path. |
-| `GET /api/live` | Latest committed capture preview and recorder state. |
-| `GET /api/events` | Server-sent `snapshot` events every second, with recent capture summaries; bounded to 100 connections/process. |
-| `GET /api/health` | HTTP 200 while recording fresh data, 503 while starting/disconnected/stale or unable to save. Demo is explicitly identified. |
+| `GET /api/live` | Latest committed capture preview, recorder state and a `weather` block. |
+| `GET /api/events` | Server-sent `snapshot` events every second, with recent capture summaries and weather status; bounded to 100 connections/process. |
+| `GET /api/health` | HTTP 200 while recording fresh scope data, 503 while starting/disconnected/stale or unable to save. Demo is explicitly identified. A separate `weather` block reports the station; it does not affect the status code. |
+| `GET /api/weather/live` | Latest W and E values, port, state, staleness, ages, last-second wind mean/max and line/error counters. |
+| `GET /api/weather/history?seconds=300` | Wind in 1 s bins (mean, max, count) and every environment sample; 1–3,600 s. |
 | `GET /api/history?limit=600` | Latest summaries, oldest first; limit 1–7,200. |
 | `GET /api/sessions?limit=20&offset=0` | Paginated archive, newest first; maximum page size 100. |
 | `GET /api/sessions/{id}/summary.csv` | Capture summaries. |
 | `GET /api/sessions/{id}/raw.csv.gz` | Full sample export. |
+| `GET /api/sessions/{id}/weather.csv` | All weather samples for the session's time span. |
 | `GET /api/sessions/{id}/metadata.json` | Session metadata. |
 
-If USB fails, the website stays up and the last values are visibly marked stale/paused. If the browser loses the server, it reports connection loss rather than assuming recording stopped. The service journal contains the underlying USB/disk errors; public status messages omit local paths.
+If USB fails, the website stays up and the last values are visibly marked stale/paused. The weather panel is marked stale independently of the scope. If the browser loses the server, it reports connection loss rather than assuming recording stopped. The service journal contains the underlying USB/disk errors; public status messages omit local paths.
 
 ## Run at boot and publish over HTTPS
 
@@ -187,7 +237,7 @@ These are deployment instructions, not actions performed automatically by the ap
    If the `oclab` service user already exists, skip `useradd`. Ensure `/opt/oclab` and its virtual environment are readable/executable by the service user.
 
 3. Edit `/etc/oclab/config.toml`: set `data_dir = "/var/lib/oclab"`, `mode = "hardware"`, and keep `host = "127.0.0.1"`. Set calibration, scope ranges and research reuse/contact information.
-4. Install the provided udev rule, reload udev, and reconnect the scope as above. Install/start the service:
+4. Install the provided udev rules (scope and, optionally, Pico), reload udev, and reconnect both devices as above. The service unit adds the `dialout` supplementary group so the service user can open the Pico's serial port. Install/start the service:
 
    ```sh
    sudo install -m 0644 /opt/oclab/deploy/oclab.service /etc/systemd/system/oclab.service
@@ -208,7 +258,7 @@ Public hosting needs your real domain and network access; those are not configur
 .venv/bin/python -m pytest -q
 ```
 
-Tests exercise the driver API adapter, channel/probe/calibration mathematics, invalid and clipped samples, lossless export counts/values, snapshot boundaries, recording recovery, USB failure/retry, failed persistence, disk reserve, session rotation and single-writer locking. Hardware acquisition requires acceptance testing on your actual Hantek device; passing simulation tests does not establish voltage/position calibration.
+Tests exercise the weather line parser (including empty, malformed and partial lines), weather association windows, serial disconnect/reconnect over a fake source and a real pty, weather exports, the driver API adapter, channel/probe/calibration mathematics, invalid and clipped samples, lossless export counts/values, snapshot boundaries, recording recovery, USB failure/retry, failed persistence, disk reserve, session rotation and single-writer locking. Hardware acquisition requires acceptance testing on your actual Hantek device; passing simulation tests does not establish voltage/position calibration.
 
 The frontend is plain HTML/CSS/JavaScript with canvas plots. Runtime files live in `src/oclab/`; `config.example.toml` documents operator settings, and `deploy/` contains the optional service, USB permissions and proxy templates.
 
