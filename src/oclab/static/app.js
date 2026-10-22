@@ -44,6 +44,11 @@ function renderSnapshot(snapshot) {
     $("position-unit").textContent = s.position_unit;
     $("position-calibration").textContent = s.position_unit === "mm" ? "Calibrated" : "Uncalibrated";
     $("valid-fraction").textContent = `${fmt(s.valid_fraction * 100, 1)}%`;
+    $("scintillation").textContent = fmt(s.scintillation_index, 4);
+    // Fraction of wall time inside bursts over the selected window; the gaps are USB transfer and re-arming.
+    const recent = selectedHistory().filter((p) => Number.isFinite(p.since_previous_start_s));
+    const span = recent.reduce((a, p) => a + p.since_previous_start_s, 0);
+    $("coverage").textContent = span > 0 ? `${fmt(recent.reduce((a, p) => a + p.burst_duration_s, 0) / span * 100, 0)}%` : "—";
     $("quality-note").textContent = s.clipped_fraction > 0 ? `${fmt(s.clipped_fraction * 100, 1)}% clipped · check ranges` : s.low_sum_fraction > 0 ? `${fmt(s.low_sum_fraction * 100, 1)}% below SUM threshold` : "No clipping or low-SUM flags";
     $("last-update").textContent = `${healthy ? "Updated" : "Last capture"} ${utc(s.host_received_utc)} UTC · ${fmt(status.last_capture_age_s, 0)} s ago`;
     $("centroid").textContent = `X ${fmt(s.position_x)} / Y ${fmt(s.position_y)}`;
@@ -260,7 +265,7 @@ async function loadArchive() {
       cell(row, item.status[0].toUpperCase() + item.status.slice(1), `session-state ${item.status}`);
       cell(row, count(item.capture_count)); cell(row, count(item.sample_count));
       const links = document.createElement("div"); links.className = "download-links";
-      for (const [file, label] of [["summary.csv", "CSV ↓"], ["raw.csv.gz", "Raw ↓"], ["weather.csv", "Weather ↓"], ["metadata.json", "Metadata ↓"]]) {
+      for (const [file, label] of [["summary.csv", "CSV ↓"], ["raw.csv.gz", "Raw ↓"], ["minutes.csv", "Minutes ↓"], ["session.npz", "NPZ ↓"], ["weather.csv", "Weather ↓"], ["metadata.json", "Metadata ↓"]]) {
         const a = document.createElement("a"); a.href = `/api/sessions/${encodeURIComponent(item.id)}/${file}`; a.textContent = label;
         a.setAttribute("aria-label", `Download ${file} for session ${item.id}`); a.download = `${item.id}-${file}`; links.append(a);
       }
@@ -316,7 +321,9 @@ async function init() {
     $("mode-banner").hidden = config.mode !== "demo";
     const s = config.scope, c = config.calibration, e = config.experiment;
     $("sample-rate").textContent = `${count(s.sample_rate)} Sa/s / channel`;
-    $("burst-depth").textContent = `${count(s.depth)} samples`;
+    $("burst-depth").textContent = `${count(s.depth)} samples · ${fmt(s.depth / s.sample_rate * 1000, 0)} ms`;
+    const bandwidth = s.store_rate_hz === s.sample_rate ? s.store_rate_hz / 2 : s.store_rate_hz * 0.4;
+    $("store-rate").textContent = `${count(s.store_rate_hz)} Sa/s · ${count(bandwidth)} Hz band`;
     [s.x_channel, s.y_channel, s.sum_channel].forEach((channel, i) => { document.querySelectorAll(".channel")[i].textContent = `CH${channel}`; });
     $("scatter-tag").textContent = c.x_scale_mm !== null ? "CALIBRATED · mm" : c.position_model === "voltage" ? "X · Y (V)" : "X/SUM · Y/SUM";
     $("laser-name").textContent = `${e.laser} · ${e.wavelength_nm} nm`;

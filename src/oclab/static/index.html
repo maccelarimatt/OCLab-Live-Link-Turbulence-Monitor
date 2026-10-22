@@ -52,7 +52,7 @@
       </article>
     </section>
 
-    <div class="acquisition-strip"><span><i class="record-icon" aria-hidden="true"></i><strong id="record-state">Waiting to record</strong></span><span>Sample rate <strong id="sample-rate">—</strong></span><span>Burst depth <strong id="burst-depth">—</strong></span><span>Valid position samples <strong id="valid-fraction">—</strong></span><span id="quality-note">No measurements yet</span></div>
+    <div class="acquisition-strip"><span><i class="record-icon" aria-hidden="true"></i><strong id="record-state">Waiting to record</strong></span><span>Scope rate <strong id="sample-rate">—</strong></span><span>Stored at <strong id="store-rate">—</strong></span><span>Burst depth <strong id="burst-depth">—</strong></span><span>Time coverage <strong id="coverage">—</strong></span><span>Scintillation σ<sub>I</sub>² <strong id="scintillation">—</strong></span><span>Valid position samples <strong id="valid-fraction">—</strong></span><span id="quality-note">No measurements yet</span></div>
 
     <section id="weather" class="panel weather-panel" aria-labelledby="weather-title">
       <div class="panel-heading"><div><p class="eyebrow">03 / WEATHER</p><h2 id="weather-title">Weather at the link</h2></div><span class="small-tag" id="weather-tag">Pico W · connecting</span></div>
@@ -76,7 +76,7 @@
       <div class="section-heading"><div><p class="eyebrow">RECORDED MEASUREMENTS</p><h2>Research data archive</h2><p>Every acquired sample is saved locally. Download capture summaries or full waveforms.</p></div><button class="button" id="refresh-archive"><span aria-hidden="true">↻</span> Refresh archive</button></div>
       <div class="table-scroll"><table><thead><tr><th>Session / UTC start</th><th>Source</th><th>Status</th><th>Captures</th><th>Samples / channel</th><th>Download</th></tr></thead><tbody id="sessions-body"><tr><td colspan="6" class="empty-table">Loading the recording archive…</td></tr></tbody></table></div>
       <div class="archive-footer"><span id="archive-count">—</span><div class="pagination"><button id="previous-page" disabled aria-label="Previous archive page">← Previous</button><button id="next-page" disabled aria-label="Next archive page">Next →</button></div></div>
-      <p class="archive-help">CSV = one summary per capture, including the weather at that moment. Raw CSV.gz = every sample, all four channels and ADC codes. Weather = every wind (10 Hz) and environment (1 Hz) sample during the session. Metadata includes settings, calibration and weather sensor notes. Active-session downloads include data saved when the request starts.</p>
+      <p class="archive-help">CSV = one summary per capture, including the weather at that moment. Raw CSV.gz = every stored sample of all four channels, anti-alias filtered to the operating frequency. Minutes = per-minute coverage, scintillation and weather. NPZ = the whole session as NumPy arrays with per-minute spectra, for analysis. Weather = every wind (10 Hz) and environment (1 Hz) sample during the session. Metadata includes settings, calibration and weather sensor notes. Active-session downloads include data saved when the request starts.</p>
       <p id="license-note" class="archive-help"></p>
     </section>
 
