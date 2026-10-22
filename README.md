@@ -37,6 +37,15 @@ sudo apt install python3-venv python3-dev git libusb-1.0-0
 ./install.sh
 ```
 
+On Ubuntu/Pop!_OS 22.04, whose `python3` is 3.10, install Python 3.12 alongside it and point the installer at it:
+
+```sh
+sudo add-apt-repository ppa:deadsnakes/ppa
+sudo apt update
+sudo apt install python3.12 python3.12-venv python3.12-dev
+PYTHON=python3.12 ./install.sh
+```
+
 The installer uses your system Python, including when launched from a Flatpak editor. It preserves an incompatible existing `.venv` in a timestamped `.venv.backup-*` directory before rebuilding. It is safe to run again to repair a missing package or stale launcher. Run it from your normal Linux terminal if your editor cannot access the host.
 
 `requirements.lock` contains the tested runtime dependency versions, including the pinned driver. Alternatively, `.venv/bin/python -m pip install -e .` resolves versions within the ranges in `pyproject.toml` in an existing compatible environment.

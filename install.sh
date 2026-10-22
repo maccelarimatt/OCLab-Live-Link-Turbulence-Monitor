@@ -16,15 +16,17 @@ if [ -f /.flatpak-info ]; then
 fi
 
 cd "$oclab_repo_dir"
-python3 - <<'PY'
+# Override when the default python3 is older than 3.12, e.g. PYTHON=python3.12 ./install.sh
+oclab_python=${PYTHON:-python3}
+"$oclab_python" - <<'PY'
 import sys
 if sys.version_info < (3, 12):
-    raise SystemExit("Python 3.12 or newer is required. Install it before running this script.")
+    raise SystemExit("Python 3.12 or newer is required. Install it, then run: PYTHON=python3.12 ./install.sh")
 print(f"Using {sys.executable} (Python {sys.version.split()[0]})", flush=True)
 PY
 
 if [ -e .venv ]; then
-    if ! python3 - <<'PY'
+    if ! "$oclab_python" - <<'PY'
 from pathlib import Path
 import subprocess
 import sys
@@ -49,7 +51,7 @@ PY
 fi
 
 if [ ! -d .venv ]; then
-    python3 -m venv .venv
+    "$oclab_python" -m venv .venv
 fi
 
 .venv/bin/python -m pip install -r requirements.lock
