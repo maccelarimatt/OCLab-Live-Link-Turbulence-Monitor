@@ -5,6 +5,7 @@ import numpy as np
 from hantek6254bc import Capture, Hantek6254BC
 
 from .config import Settings
+from .decimation import any_in_window, decimate, plan, to_codes
 
 
 class HardwareSource:
@@ -29,6 +30,8 @@ class HardwareSource:
 class DemoSource:
     """Synthetic waveforms; never selected automatically on hardware errors."""
 
+    TRANSFER_S = 0.03  # Simulated USB transfer and re-arm gap between bursts
+
     def __init__(self, settings: Settings):
         self.settings = settings
         self.rng = np.random.default_rng()
@@ -36,6 +39,8 @@ class DemoSource:
 
     def capture(self) -> Capture:
         s = self.settings.scope
+        # Take as long as a real scope: record the burst, then transfer it.
+        time.sleep(s.depth / s.sample_rate + self.TRANSFER_S)
         t = np.arange(s.depth, dtype=float) / s.sample_rate
         phase = time.monotonic() - self.started + t
         total = 1.7 + 0.16 * np.sin(phase * 0.63) + self.rng.normal(0, 0.018, s.depth)
@@ -54,6 +59,47 @@ class DemoSource:
         pass
 
 
+def positions(x, y, total, settings: Settings, valid):
+    """Per-sample position from probe-corrected X/Y/SUM volts under the configured model."""
+    c = settings.calibration
+    n = x.shape[-1]
+    corrected_sum = total - c.sum_offset_v
+    px = x - c.x_offset_v
+    py = y - c.y_offset_v
+    if c.position_model == "difference_over_sum":
+        px = np.divide(px, corrected_sum, out=np.zeros(n), where=valid)
+        py = np.divide(py, corrected_sum, out=np.zeros(n), where=valid)
+    unit = "ratio" if c.position_model == "difference_over_sum" else "V"
+    if c.x_scale_mm is not None:
+        px, py = px * c.x_scale_mm, py * c.y_scale_mm
+        unit = "mm"
+    return px, py, unit
+
+
+def decimate_capture(capture: Capture, settings: Settings) -> tuple[dict, dict]:
+    """Anti-alias filter and decimate a burst to store_rate_hz.
+
+    Returns the archived arrays and summary fields computed on the stored
+    (band-limited) series, including the scintillation index of SUM.
+    """
+    s, c = settings.scope, settings.calibration
+    p = plan(s.sample_rate, s.store_rate_hz, s.depth)
+    volts = decimate(capture.volts, p["factor"])
+    indices = np.array([s.x_channel, s.y_channel, s.sum_channel]) - 1
+    rails = np.any((capture.raw[indices] <= 28) | (capture.raw[indices] >= 227), axis=0)
+    clipped = any_in_window(rails, p["factor"])
+    total = volts[indices[2]] * s.probe_factors[indices[2]] - c.sum_offset_v
+    valid = (total >= c.minimum_sum_v) & ~clipped
+    scint = None
+    if valid.sum() >= 2 and total[valid].mean() > 0:
+        scint = float(np.var(total[valid]) / total[valid].mean() ** 2)
+    stored = {"codes": to_codes(volts, s.volts_per_div), "clipped": clipped,
+              "store_rate_hz": s.store_rate_hz, "t0_s": p["t0_s"]}
+    return stored, {"store_rate_hz": s.store_rate_hz, "stored_samples": p["stored"],
+                    "bandwidth_hz": p["bandwidth_hz"], "scintillation_index": scint,
+                    "stored_valid_fraction": float(valid.mean())}
+
+
 def analyse(capture: Capture, settings: Settings) -> tuple[dict, dict]:
     s, c = settings.scope, settings.calibration
     n = s.depth
@@ -69,15 +115,7 @@ def analyse(capture: Capture, settings: Settings) -> tuple[dict, dict]:
     # These are the upstream driver's wire-code rails (nominal codes 0/255).
     clipped = np.any((capture.raw[indices] <= 28) | (capture.raw[indices] >= 227), axis=0)
     valid = (corrected_sum >= c.minimum_sum_v) & ~clipped
-    px = x - c.x_offset_v
-    py = y - c.y_offset_v
-    if c.position_model == "difference_over_sum":
-        px = np.divide(px, corrected_sum, out=np.zeros(n), where=valid)
-        py = np.divide(py, corrected_sum, out=np.zeros(n), where=valid)
-    unit = "ratio" if c.position_model == "difference_over_sum" else "V"
-    if c.x_scale_mm is not None:
-        px, py = px * c.x_scale_mm, py * c.y_scale_mm
-        unit = "mm"
+    px, py, unit = positions(x, y, total, settings, valid)
 
     def mean(a):
         return float(np.mean(a[valid])) if valid.any() else None

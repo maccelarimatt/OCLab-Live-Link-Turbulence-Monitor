@@ -16,6 +16,9 @@ from .service import Recorder
 from .storage import utc_to_ns
 
 
+NPZ_LIMIT_BYTES = 1_500_000_000  # session.npz is assembled in memory
+
+
 class ManagedStream(StreamingResponse):
     """Always return a capacity slot, including early disconnects and send errors."""
 
@@ -155,6 +158,27 @@ def create_app(settings: Settings | None = None, recorder: Recorder | None = Non
                              media_type="text/csv",
                              headers={"Content-Disposition": f'attachment; filename="{session["id"]}-weather.csv"',
                                       "X-Export-Weather-From-NS": str(from_ns), "X-Export-Weather-Through-NS": str(through_ns)})
+
+    def stream_export(session, generator, suffix, media_type):
+        if not exports.acquire(blocking=False):
+            raise HTTPException(429, "Two exports are already running; retry shortly", headers={"Retry-After": "10"})
+        return ManagedStream(generator, release=exports.release, media_type=media_type,
+                             headers={"Content-Disposition": f'attachment; filename="{session["id"]}-{suffix}"',
+                                      "X-Export-Through-Capture-ID": str(session["export_through_capture_id"])})
+
+    @app.get("/api/sessions/{session_id}/minutes.csv")
+    def minutes_csv(session_id: str):
+        session = get_session(session_id)
+        return stream_export(session, recorder.store.minutes_csv(session), "minutes.csv", "text/csv")
+
+    @app.get("/api/sessions/{session_id}/session.npz")
+    def session_npz(session_id: str):
+        session = get_session(session_id)
+        if not recorder.store.decimated(session):
+            raise HTTPException(409, "Binary export is available for sessions recorded with schema 3 or later; use raw.csv.gz")
+        if recorder.store.npz_size(session) > NPZ_LIMIT_BYTES:
+            raise HTTPException(413, "Session too large for a single .npz; shorten session_duration_s or use raw.csv.gz")
+        return stream_export(session, recorder.store.session_npz(session), "session.npz", "application/octet-stream")
 
     @app.get("/api/sessions/{session_id}/summary.csv")
     def summary_csv(session_id: str):

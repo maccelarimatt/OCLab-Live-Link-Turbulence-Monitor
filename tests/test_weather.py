@@ -270,7 +270,7 @@ def test_fake_source_end_to_end_with_captures(tmp_path):
     assert rows(recorder.store, "env_samples")[0]["dht_rh"] is None
     assert len(rows(recorder.store, "weather_headers")) == 1
     meta = session["metadata"]
-    assert meta["schema_version"] == 2
+    assert meta["schema_version"] == 3
     assert meta["weather"]["header"]["firmware"] == "pico-weather"
     assert meta["weather"]["association"]["window_s"] == 10
     assert any("Cn2" in c for c in meta["weather"]["caveats"])
@@ -427,7 +427,9 @@ def test_weather_api_and_summary_csv(tmp_path):
         session_id = recorder.snapshot()["status"]["session_id"]
         recorder.stop()
         summary = list(csv.DictReader(io.StringIO(client.get(f"/api/sessions/{session_id}/summary.csv").text)))
-        assert list(summary[0])[-15:] == ["wind_mean_ms", "wind_std_ms", "wind_max_ms", "wind_n", "wind_ti", "taylor_ok",
+        columns = list(summary[0])
+        start = columns.index("wind_mean_ms")
+        assert columns[start:start + 15] == ["wind_mean_ms", "wind_std_ms", "wind_max_ms", "wind_n", "wind_ti", "taylor_ok",
                                           "air_temp_c", "dht_temp_c", "rh_pct", "pressure_hpa", "light_v", "ldr_ohm",
                                           "weather_age_s", "weather_status", "rh_source"]
         assert summary[-1]["rh_source"] == "DHT11"  # Demo DHT11 always reads in range

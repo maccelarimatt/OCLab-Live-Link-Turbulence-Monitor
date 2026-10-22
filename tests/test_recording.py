@@ -53,11 +53,15 @@ def test_recording_api_raw_export_and_restart(tmp_path):
         assert int(summary.headers["X-Export-Through-Capture-ID"]) == info["export_through_capture_id"]
         raw = client.get(f"/api/sessions/{session_id}/raw.csv.gz")
         rows = list(csv.DictReader(io.StringIO(gzip.decompress(raw.content).decode())))
-        assert len(rows) == info["sample_count"]
-        assert float(rows[1]["sample_time_s"]) == 1 / settings.scope.sample_rate
+        assert len(rows) == info["sample_count"]  # Stored (decimated) samples
+        decimation = info["metadata"]["decimation"]
+        assert float(rows[0]["sample_time_s"]) == pytest.approx(decimation["t0_s"])
+        assert float(rows[1]["sample_time_s"]) - float(rows[0]["sample_time_s"]) == pytest.approx(1 / settings.scope.store_rate_hz)
         first_capture = [r for r in rows if r["capture_id"] == summaries[0]["capture_id"]]
-        assert np.mean([float(r["ch1_v"]) for r in first_capture]) == pytest.approx(float(summaries[0]["x_mean_v"]))
-        assert all("ch4_raw" in r for r in rows)
+        assert len(first_capture) == decimation["stored"] == int(summaries[0]["stored_samples"])
+        # Low-pass filtering keeps the burst mean (unity DC gain); edges are not stored.
+        assert np.mean([float(r["ch1_v"]) for r in first_capture]) == pytest.approx(float(summaries[0]["x_mean_v"]), abs=0.005)
+        assert all(r["clipped"] == "0" for r in rows)
         assert client.get("/api/sessions/nonexistent/summary.csv").status_code == 404
         assert client.get("/api/history?limit=10000000").status_code == 422
         assert client.post("/api/live").status_code == 405

@@ -7,7 +7,7 @@ import shutil
 import threading
 import time
 
-from .acquisition import DemoSource, HardwareSource, analyse
+from .acquisition import DemoSource, HardwareSource, analyse, decimate_capture
 from .config import Settings
 from .storage import Store, ns_to_utc
 from .weather import WeatherRecorder, unavailable
@@ -119,6 +119,8 @@ class Recorder:
                         received_ns = time.time_ns()
                         elapsed = time.monotonic() - start
                         summary, preview = analyse(capture, self.settings)
+                        stored, decimated = decimate_capture(capture, self.settings)
+                        summary.update(decimated)
                     except Exception:
                         logger.exception("Acquisition failed; retrying")
                         self.set_status("disconnected", "Oscilloscope unavailable or capture failed. Check USB, permissions and service logs; reconnecting automatically.")
@@ -140,7 +142,7 @@ class Recorder:
                         self.end_session()
                         self.session_id = self.store.start_session(self.settings, self.weather.metadata())
                         session_started = start
-                    saved = self.store.save(self.session_id, capture, summary)
+                    saved = self.store.save(self.session_id, stored, summary)
                     previous_start = start
                     with self.mutex:
                         self.latest = {"summary": saved, "preview": preview}

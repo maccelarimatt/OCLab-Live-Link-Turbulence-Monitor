@@ -7,6 +7,8 @@ import tomllib
 
 from hantek6254bc import ScopeConfig
 
+from .decimation import plan
+
 
 @dataclass
 class ScopeSettings:
@@ -17,6 +19,7 @@ class ScopeSettings:
     x_channel: int = 1
     y_channel: int = 2
     sum_channel: int = 3
+    store_rate_hz: int = 2500   # Operating frequency: archived samples/s after anti-alias filtering
     bus: int | None = None
     address: int | None = None
 
@@ -93,8 +96,9 @@ class Settings:
             raise ValueError("X, Y and SUM must use three distinct channels from 1 to 4")
         if len(self.scope.probe_factors) != 4 or any(p <= 0 for p in self.scope.probe_factors):
             raise ValueError("Provide four positive probe_factors")
-        if self.capture_interval_s < 0.1 or self.session_duration_s < 1 or self.retry_interval_s < 0.1:
-            raise ValueError("Capture/retry interval must be >= 0.1 s; session duration >= 1 s")
+        if self.capture_interval_s < 0 or self.session_duration_s < 1 or self.retry_interval_s < 0.1:
+            raise ValueError("Capture interval must be >= 0 s (0 = back-to-back), retry interval >= 0.1 s; session duration >= 1 s")
+        plan(self.scope.sample_rate, self.scope.store_rate_hz, self.scope.depth)
         if self.minimum_free_disk_mb < 0 or not 1 <= self.port <= 65535:
             raise ValueError("Invalid disk threshold or port")
         c = self.calibration
@@ -121,11 +125,15 @@ class Settings:
         return data
 
 
-def load_settings(path: str | None = None, **overrides) -> Settings:
+def load_settings(path: str | None = None, store_rate=None, scope_rate=None, **overrides) -> Settings:
     data = {}
     if path:
         with Path(path).open("rb") as stream:
             data = tomllib.load(stream)
+    # Command-line operating frequency / scope rate override the [scope] table.
+    for key, value in (("store_rate_hz", store_rate), ("sample_rate", scope_rate)):
+        if value is not None:
+            data.setdefault("scope", {})[key] = value
     for name, cls in (("scope", ScopeSettings), ("calibration", Calibration), ("experiment", Experiment),
                       ("weather", WeatherSettings)):
         if name in data:
@@ -134,3 +142,13 @@ def load_settings(path: str | None = None, **overrides) -> Settings:
     settings = Settings(**data)
     settings.validate()
     return settings
+
+
+def load_settings_dict(public: dict) -> Settings:
+    """Rebuild (unvalidated) Settings from a session's metadata settings, filling newer fields with defaults."""
+    data = dict(public)
+    for name, cls in (("scope", ScopeSettings), ("calibration", Calibration), ("experiment", Experiment),
+                      ("weather", WeatherSettings)):
+        if name in data:
+            data[name] = cls(**data[name])
+    return Settings(**data)

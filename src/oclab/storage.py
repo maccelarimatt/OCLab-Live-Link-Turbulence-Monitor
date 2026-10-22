@@ -13,6 +13,7 @@ import zlib
 import numpy as np
 
 from . import __version__
+from .decimation import plan, volts_per_count
 
 DRIVER_REVISION = "be5663df4f0a93e96c039071f9502c698da678a1"
 SUMMARY_COLUMNS = [
@@ -26,6 +27,13 @@ SUMMARY_COLUMNS = [
     "wind_mean_ms", "wind_std_ms", "wind_max_ms", "wind_n", "wind_ti", "taylor_ok",
     "air_temp_c", "dht_temp_c", "rh_pct", "pressure_hpa", "light_v", "ldr_ohm",
     "weather_age_s", "weather_status", "rh_source",
+    # Schema 3: archived series decimated to the operating frequency.
+    "store_rate_hz", "stored_samples", "bandwidth_hz", "scintillation_index", "stored_valid_fraction",
+]
+MINUTE_COLUMNS = [
+    "minute_start_utc", "captures", "covered_s", "coverage_fraction",
+    "scintillation_index_mean", "scintillation_index_median", "wander_rms_mean", "sum_mean_v",
+    "valid_fraction_mean", "wind_mean_ms", "air_temp_c", "rh_pct", "pressure_hpa",
 ]
 WEATHER_COLUMNS = [
     "kind", "host_received_utc", "host_received_ns", "source", "pico_t_ms",
@@ -112,12 +120,15 @@ class Store:
     def start_session(self, settings, weather=None) -> str:
         session_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:8]
         metadata = {
-            "schema_version": 2, "application_version": __version__,
+            "schema_version": 3, "application_version": __version__,
             "driver_repository": "https://github.com/maccelarimatt/Hantek6254BC-Linux-Driver",
             "driver_revision": DRIVER_REVISION, "settings": settings.public(),
             "time_basis": "UTC host call-start and receive timestamps; sample time is relative within each burst. No hardware UTC timestamp. Bursts are not contiguous.",
-            "statistics": "Voltage mean and population std use all samples. Position mean and radial RMS about the burst centroid use only unclipped samples with corrected SUM >= minimum_sum_v.",
-            "raw_format": "Per-capture NPZ: scope_volts (4,N), raw (4,N) upstream wire codes, time_s (N). CSV ch*_v applies probe_factors to scope_volts. No offset correction applied to archived voltage columns.",
+            "statistics": "Voltage mean and population std use all samples. Position mean and radial RMS about the burst centroid use only unclipped samples with corrected SUM >= minimum_sum_v. scintillation_index = var(SUM)/mean(SUM)^2 of the stored band-limited series over valid stored samples; it includes detector and scope noise.",
+            "decimation": {**plan(settings.scope.sample_rate, settings.scope.store_rate_hz, settings.scope.depth),
+                           "store_rate_hz": settings.scope.store_rate_hz,
+                           "filter": "Linear-phase Kaiser FIR, unity DC gain, flat to 0.4 x store rate, >= 60 dB attenuation from 0.5 x store rate; valid convolution only (no edge transients)."},
+            "raw_format": "Per-capture NPZ: codes (4,M) int16 = scope ADC codes x 64 about mid-scale after anti-alias filtering and decimation to store_rate_hz; clipped (M) bool, true where any mapped X/Y/SUM sample under the filter reached the ADC rails; t0_s = time of stored sample 0 after the burst's first scope sample. Volts = codes x volts_per_div x probe_factor / (31 x 64). No offset correction applied to archived voltage columns.",
             "weather": weather,
         }
         with self.connect() as db:
@@ -137,16 +148,17 @@ class Store:
                         metadata["weather"]["header"] = weather_header
                         db.execute("UPDATE sessions SET metadata=? WHERE id=?", (json.dumps(metadata), session_id))
 
-    def save(self, session_id, capture, summary: dict) -> dict:
+    def save(self, session_id, stored: dict, summary: dict) -> dict:
         buf = io.BytesIO()
-        np.savez_compressed(buf, scope_volts=capture.volts, raw=capture.raw, time_s=capture.time_s)
+        np.savez_compressed(buf, codes=stored["codes"], clipped=stored["clipped"],
+                            store_rate_hz=stored["store_rate_hz"], t0_s=stored["t0_s"])
         result = {**summary, "session_id": session_id}
         with self.connect() as db:
             cursor = db.execute("INSERT INTO captures(session_id,received_ns,summary,waveform) VALUES(?,?,?,?)",
                                 (session_id, result["host_received_ns"], json.dumps(result, allow_nan=False), buf.getvalue()))
             result["capture_id"] = cursor.lastrowid
             db.execute("UPDATE sessions SET capture_count=capture_count+1,sample_count=sample_count+? WHERE id=?",
-                       (result["sample_count"], session_id))
+                       (result.get("stored_samples", result["sample_count"]), session_id))
         return result
 
     def save_weather(self, source, wind, env, headers=()):
@@ -256,21 +268,130 @@ class Store:
             writer.writerow([data.get(key) for key in SUMMARY_COLUMNS])
             yield stream.getvalue().encode()
 
+    @staticmethod
+    def decimated(session) -> bool:
+        return session["metadata"].get("schema_version", 1) >= 3
+
+    @staticmethod
+    def decode(waveform_blob, scope_settings):
+        """(time_s (M,), probe-corrected volts (4,M), clipped (M,) or None, raw (4,M) or None) for either format."""
+        with np.load(io.BytesIO(waveform_blob), allow_pickle=False) as w:
+            if "codes" in w:
+                codes, clipped = w["codes"], w["clipped"]
+                t = float(w["t0_s"]) + np.arange(codes.shape[1]) / float(w["store_rate_hz"])
+                scale = volts_per_count(scope_settings["volts_per_div"], scope_settings["probe_factors"])[:, None]
+                return t, codes * scale, clipped, None
+            factors = np.array(scope_settings["probe_factors"])[:, None]
+            return w["time_s"], w["scope_volts"] * factors, None, w["raw"]
+
     def raw_csv_gzip(self, session):
         compressor = zlib.compressobj(level=3, wbits=31)
         header = ["capture_id", "source", "host_started_utc", "host_received_utc", "sample_index", "sample_time_s"]
-        header += [f"ch{i}_v" for i in range(1, 5)] + [f"ch{i}_raw" for i in range(1, 5)]
+        header += [f"ch{i}_v" for i in range(1, 5)]
+        header += ["clipped"] if self.decimated(session) else [f"ch{i}_raw" for i in range(1, 5)]
         yield compressor.compress((",".join(header) + "\r\n").encode())
-        factors = np.array(session["metadata"]["settings"]["scope"]["probe_factors"])[:, None]
+        scope = session["metadata"]["settings"]["scope"]
         for row in self.export_rows(session["id"], session["export_through_capture_id"], raw=True):
             summary = json.loads(row["summary"])
-            with np.load(io.BytesIO(row["waveform"]), allow_pickle=False) as waveform:
-                v, raw, t = waveform["scope_volts"] * factors, waveform["raw"], waveform["time_s"]
+            t, v, clipped, raw = self.decode(row["waveform"], scope)
+            extra = clipped[:, None].astype(int) if clipped is not None else raw.T
+            columns = np.column_stack([np.arange(len(t)), t, v.T, extra]).tolist()
+            prefix = [row["id"], summary["source"], summary["host_started_utc"], summary["host_received_utc"]]
             out = io.StringIO()
             writer = csv.writer(out)
-            for i in range(len(t)):
-                writer.writerow([row["id"], summary["source"], summary["host_started_utc"], summary["host_received_utc"], i, t[i], *v[:, i], *raw[:, i]])
+            writer.writerows(prefix + [int(c[0]), c[1], *c[2:6], *map(int, c[6:])] for c in columns)
             chunk = compressor.compress(out.getvalue().encode())
             if chunk:
                 yield chunk
         yield compressor.flush()
+
+    def minutes_csv(self, session):
+        """Per-UTC-minute statistics from the capture summaries (captures are assigned to their start minute)."""
+        groups = {}
+        for row in self.export_rows(session["id"], session["export_through_capture_id"]):
+            data = json.loads(row["summary"])
+            groups.setdefault(data["host_started_ns"] // 60_000_000_000, []).append(data)
+        stream = io.StringIO()
+        writer = csv.writer(stream)
+        writer.writerow(MINUTE_COLUMNS)
+
+        def mean(items, key, reducer=np.mean):
+            values = [d.get(key) for d in items if d.get(key) is not None]
+            return float(reducer(values)) if values else None
+        for minute, items in sorted(groups.items()):
+            covered = sum(d["burst_duration_s"] for d in items)
+            writer.writerow([ns_to_utc(minute * 60_000_000_000), len(items), covered, covered / 60,
+                             mean(items, "scintillation_index"), mean(items, "scintillation_index", np.median),
+                             mean(items, "wander_rms"), mean(items, "sum_mean_v"), mean(items, "valid_fraction"),
+                             mean(items, "wind_mean_ms"), mean(items, "air_temp_c"), mean(items, "rh_pct"),
+                             mean(items, "pressure_hpa")])
+        yield stream.getvalue().encode()
+
+    @staticmethod
+    def npz_size(session) -> int:
+        """Approximate in-memory size of session_npz (int16 codes + clip flags), to refuse very large requests."""
+        return session["capture_count"] * session["metadata"]["decimation"]["stored"] * (4 * 2 + 1)
+
+    def session_npz(self, session):
+        """Whole-session arrays plus per-minute averaged spectra, as one compressed .npz."""
+        from .acquisition import positions
+        from .config import Settings, load_settings_dict
+        settings: Settings = load_settings_dict(session["metadata"]["settings"])
+        s = settings.scope
+        x_i, y_i, sum_i = s.x_channel - 1, s.y_channel - 1, s.sum_channel - 1
+        scale = volts_per_count(s.volts_per_div, s.probe_factors)
+        ids, started, received, t0, codes, clipped = [], [], [], [], [], []
+        spectra = {}
+        rate = s.store_rate_hz
+        for row in self.export_rows(session["id"], session["export_through_capture_id"], raw=True):
+            summary = json.loads(row["summary"])
+            with np.load(io.BytesIO(row["waveform"]), allow_pickle=False) as w:
+                c, clip, start = w["codes"], w["clipped"], float(w["t0_s"])
+            ids.append(row["id"]); started.append(summary["host_started_ns"]); received.append(summary["host_received_ns"])
+            t0.append(start); codes.append(c); clipped.append(clip)
+            v = c * scale[:, None]
+            total = v[sum_i] - settings.calibration.sum_offset_v
+            valid = (total >= settings.calibration.minimum_sum_v) & ~clip
+            if not valid.all():
+                continue  # Spectra only from fully valid bursts
+            px, py, _ = positions(v[x_i], v[y_i], v[sum_i], settings, valid)
+            window = np.hanning(len(total))
+            norm = rate * (window ** 2).sum()
+            psd = []
+            for series in (total / total.mean(), px, py):
+                p = np.abs(np.fft.rfft((series - series.mean()) * window)) ** 2 / norm
+                p[1:-1] *= 2  # One-sided
+                psd.append(p)
+            minute = summary["host_started_ns"] // 60_000_000_000
+            acc = spectra.setdefault(minute, [0, 0])
+            acc[0] += 1
+            acc[1] = acc[1] + np.array(psd)
+        minutes = sorted(spectra)
+        n = codes[0].shape[1] if codes else 0
+        bins = len(np.fft.rfftfreq(n)) if n else 0
+
+        def mean_psd(index):
+            return np.array([spectra[m][1][index] / spectra[m][0] for m in minutes]).reshape(len(minutes), bins)
+        arrays = {
+            "capture_id": np.array(ids, dtype=np.int64), "host_started_ns": np.array(started, dtype=np.int64),
+            "host_received_ns": np.array(received, dtype=np.int64), "t0_s": np.array(t0),
+            "codes": np.array(codes, dtype=np.int16).reshape(len(codes), 4, n),
+            "clipped": np.array(clipped, dtype=bool).reshape(len(clipped), n),
+            "volts_per_count": scale, "store_rate_hz": np.array(rate),
+            "channels_xysum": np.array([s.x_channel, s.y_channel, s.sum_channel]),
+            "psd_minute_start_ns": np.array(minutes, dtype=np.int64) * 60_000_000_000,
+            "psd_bursts": np.array([spectra[m][0] for m in minutes], dtype=np.int64),
+            "psd_freq_hz": np.fft.rfftfreq(n, 1 / rate) if n else np.zeros(0),
+            "psd_intensity": mean_psd(0), "psd_x": mean_psd(1), "psd_y": mean_psd(2),
+            "readme": np.array(
+                "codes (captures, 4, M) int16; volts = codes * volts_per_count[channel] (probe-corrected, no offset "
+                "correction). Sample k of a capture is at t0_s + k / store_rate_hz after that burst's first scope "
+                "sample; bursts are not contiguous. clipped (captures, M). psd_*: per-UTC-minute mean one-sided "
+                "periodograms (Hann) of fully valid bursts: intensity = SUM/mean(SUM) (1/Hz), x/y = position "
+                "(unit^2/Hz, position_unit in metadata)."),
+        }
+        buf = io.BytesIO()
+        np.savez_compressed(buf, **arrays)
+        data = buf.getvalue()
+        for i in range(0, len(data), 1 << 20):
+            yield data[i:i + (1 << 20)]
