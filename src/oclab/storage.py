@@ -122,10 +122,17 @@ class Store:
                        (session_id, utc_now(), "recording", settings.mode, json.dumps(metadata)))
         return session_id
 
-    def finish_session(self, session_id, status="complete"):
+    def finish_session(self, session_id, status="complete", weather_header=None):
         if session_id:
             with self.connect() as db:
                 db.execute("UPDATE sessions SET ended_utc=?,status=? WHERE id=?", (utc_now(), status, session_id))
+                if weather_header is not None:
+                    # The Pico header can arrive after the session started; fill it in if it was missing.
+                    row = db.execute("SELECT metadata FROM sessions WHERE id=?", (session_id,)).fetchone()
+                    metadata = json.loads(row[0])
+                    if metadata.get("weather") and metadata["weather"].get("header") is None:
+                        metadata["weather"]["header"] = weather_header
+                        db.execute("UPDATE sessions SET metadata=? WHERE id=?", (json.dumps(metadata), session_id))
 
     def save(self, session_id, capture, summary: dict) -> dict:
         buf = io.BytesIO()

@@ -92,7 +92,9 @@ class Recorder:
 
     def end_session(self, status="complete"):
         if self.session_id:
-            self.store.finish_session(self.session_id, status)
+            with self.weather.mutex:
+                header = self.weather.header
+            self.store.finish_session(self.session_id, status, header)
             self.session_id = None
 
     def run(self):

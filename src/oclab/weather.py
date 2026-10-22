@@ -415,7 +415,7 @@ class WeatherRecorder:
             "device": {"description": "Raspberry Pi Pico W weather station, USB CDC serial", "usb_vid": "0x2E8A",
                        "port": port, "configured_port": w.port, "baud": w.baud},
             "header": header,
-            "header_note": "Parsed from the firmware's '# ...' header line when received; null if the Pico started before the recorder connected. All headers seen are stored in weather_headers.",
+            "header_note": "Parsed from the firmware's '# ...' header line. If it arrives after the session starts it is filled in when the session ends; null if none was received (for example, the Pico booted before the recorder connected). Every header seen is stored in the weather_headers table.",
             "line_format": {"W": "W,t_ms,v_adc,i_ma,wind_ms,clip (10 Hz)",
                             "E": "E,t_ms,dht_c,dht_rh,baro_hpa,baro_c,light_v,light_x (1 Hz)"},
             "sensors": SENSORS,

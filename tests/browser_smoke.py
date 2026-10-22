@@ -51,6 +51,11 @@ def main():
                     expect(page.locator("#mode-banner")).to_be_visible()
                     expect(page.locator("#x-value")).not_to_have_text("—")
                     expect(page.locator("#signal-empty")).not_to_be_visible()
+                    expect(page.locator("#weather-tag")).to_have_text("SYNTHETIC · DEMO")
+                    expect(page.locator("#wx-wind")).not_to_have_text("—")
+                    expect(page.locator("#wx-pressure")).not_to_have_text("—")
+                    expect(page.locator("#wind-empty")).not_to_be_visible()
+                    expect(page.locator("#weather-capture")).to_contain_text("weather ok")
                     page.locator("#waveform-tab").click()
                     expect(page.locator("#waveform-tab")).to_have_attribute("aria-pressed", "true")
                     expect(page.locator("#chart-count")).to_have_text("256 preview points")
@@ -62,6 +67,10 @@ def main():
                     download = download_info.value
                     rows = list(csv.DictReader(io.StringIO(Path(download.path()).read_text())))
                     assert rows and rows[0]["source"] == "demo"
+                    with page.expect_download() as weather_download:
+                        page.locator('a[href$="/weather.csv"]').click()
+                    weather_rows = list(csv.DictReader(io.StringIO(Path(weather_download.value.path()).read_text())))
+                    assert weather_rows and {r["kind"] for r in weather_rows} == {"W", "E"}
                     with page.expect_download() as metadata_download:
                         page.locator('a[href$="/metadata.json"]').click()
                     assert metadata_download.value.suggested_filename.endswith("metadata.json")
@@ -80,7 +89,7 @@ def main():
                     expect(page.locator("#connection-label")).to_have_text("Demo running", timeout=20000)
                     assert not errors, errors
                     browser.close()
-                    print("Browser checks passed: live data, chart controls, CSV/metadata downloads, desktop/mobile layout, offline/reconnect, no JavaScript errors.")
+                    print("Browser checks passed: live data and weather, chart controls, CSV/weather/metadata downloads, desktop/mobile layout, offline/reconnect, no JavaScript errors.")
             finally:
                 server.terminate()
                 server.wait(timeout=40)
