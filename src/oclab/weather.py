@@ -28,10 +28,10 @@ ASSOCIATION_FIELDS = (
 SENSORS = [
     {"quantity": "wind speed", "sensor": "cup anemometer, 4-20 mA loop into the Pico ADC via a shunt",
      "unit": "m/s", "rate": "10 Hz", "notes": "Slow response (distance constant about 2-3 m); not turbulence-resolving. clip=1 marks ADC saturation."},
-    {"quantity": "air temperature", "sensor": "BMP280", "unit": "degC", "rate": "1 Hz", "notes": "Reference air-temperature sensor (air_temp_c)."},
-    {"quantity": "station pressure", "sensor": "BMP280", "unit": "hPa", "rate": "1 Hz", "notes": "Not reduced to sea level."},
+    {"quantity": "air temperature", "sensor": "BMP280 or BME280 (header baro=)", "unit": "degC", "rate": "1 Hz", "notes": "Reference air-temperature sensor (air_temp_c). Mount in the sun shield."},
+    {"quantity": "station pressure", "sensor": "BMP280 or BME280 (header baro=)", "unit": "hPa", "rate": "1 Hz", "notes": "Not reduced to sea level."},
     {"quantity": "temperature, relative humidity", "sensor": "DHT11", "unit": "degC, %RH", "rate": "1 Hz",
-     "notes": "Integer resolution; accuracy about +/-2 degC and +/-5 %RH."},
+     "notes": "Integer resolution; accuracy about +/-2 degC and +/-5 %RH. Range about 20-90 %RH: firmware v3.0 sends an empty RH when the DHT11 reports 0 (below range)."},
     {"quantity": "light", "sensor": "LDR (light=ldr) or BPW34 photodiode (light=bpw34)", "unit": "V; ohm (LDR) or uA (BPW34)",
      "rate": "1 Hz", "notes": "Uncalibrated relative light level."},
 ]

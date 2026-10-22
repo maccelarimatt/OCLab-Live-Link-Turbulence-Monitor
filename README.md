@@ -130,7 +130,7 @@ Before research collection, check the driver against a known voltage reference a
 
 ### Weather station
 
-A Raspberry Pi Pico W streams newline-terminated ASCII over USB CDC serial (VID 0x2E8A, 115200 baud). Its firmware and line format are fixed; the application only reads them:
+A Raspberry Pi Pico W streams newline-terminated ASCII over USB CDC serial (VID 0x2E8A, 115200 baud). The firmware is [firmware/pico_weather/main.py](firmware/pico_weather/main.py) and its line format is fixed; the application only reads it:
 
 ```text
 # pico-weather v2.1 wind=10Hz anemo=4-20mA shunt=165.0ohm range=30.0m/s light=ldr baro=BMP280 dht=yes
@@ -138,6 +138,8 @@ W,t_ms,v_adc,i_ma,wind_ms,clip                                  # 10 Hz
 E,t_ms,dht_c,dht_rh,baro_hpa,baro_c,light_v,light_x             # 1 Hz
 ```
 
+- Firmware v3.0 pins: wind GP26 (4–20 mA across 165 Ω), LDR GP28 (LDR to 3V3, 1 kΩ to AGND; `light_x` = LDR ohms), BMP280/BME280 on I2C0 SDA GP20 at 0x76, and SCL/DHT11 on GP21/GP17, detected at start-up so either way round works. Constants (range, shunt, `LIGHT_MODE`, `R_LIGHT`) are at the top of `main.py`. Loop current below 3.6 mA (open loop) gives an empty wind field. The header is repeated every 60 s so a late-connecting host still records it.
+- To install or update the firmware, close the app and Thonny, then copy it to the Pico as `main.py` and reset (Thonny: **File → Save as → Raspberry Pi Pico**, or `pip install mpremote` then `mpremote cp firmware/pico_weather/main.py :main.py + reset`).
 - The reader runs in its own thread, separate from the scope. A scope USB failure does not stop weather logging, and a serial failure does not stop scope capture. Weather writes are covered by the same single-writer lock.
 - The port is auto-detected by USB VID unless `[weather].port` is set (prefer a `/dev/serial/by-id/...` path if several RP2040 boards are attached). Unplugging, a closed port or 10 s without data (twice `stale_after_s`, at least 5 s) triggers automatic reconnection every `retry_interval_s`.
 - Time basis: `host_received_ns` is `time.time_ns()` when each line is received, so it includes USB/serial buffering latency. The Pico `t_ms` uptime counter is kept as an auxiliary column; it wraps and is not UTC.
