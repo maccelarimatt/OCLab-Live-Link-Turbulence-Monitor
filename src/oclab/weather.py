@@ -19,17 +19,19 @@ logger = logging.getLogger(__name__)
 
 PICO_VID = 0x2E8A
 WIND_FIELDS = ("v_adc", "i_ma", "wind_ms", "clip")
-ENV_FIELDS = ("dht_c", "dht_rh", "baro_hpa", "baro_c", "light_v", "light_x")
+ENV_FIELDS = ("dht_c", "dht_rh", "baro_hpa", "baro_c", "light_v", "light_x", "baro_rh")  # baro_rh: firmware v3.1+
 ASSOCIATION_FIELDS = (
     "wind_mean_ms", "wind_std_ms", "wind_max_ms", "wind_n", "wind_ti", "taylor_ok",
     "air_temp_c", "dht_temp_c", "rh_pct", "pressure_hpa", "light_v", "ldr_ohm",
-    "weather_age_s", "weather_status",
+    "weather_age_s", "weather_status", "rh_source",
 )
 SENSORS = [
     {"quantity": "wind speed", "sensor": "cup anemometer, 4-20 mA loop into the Pico ADC via a shunt",
      "unit": "m/s", "rate": "10 Hz", "notes": "Slow response (distance constant about 2-3 m); not turbulence-resolving. clip=1 marks ADC saturation."},
     {"quantity": "air temperature", "sensor": "BMP280 or BME280 (header baro=)", "unit": "degC", "rate": "1 Hz", "notes": "Reference air-temperature sensor (air_temp_c). Mount in the sun shield."},
     {"quantity": "station pressure", "sensor": "BMP280 or BME280 (header baro=)", "unit": "hPa", "rate": "1 Hz", "notes": "Not reduced to sea level."},
+    {"quantity": "relative humidity (baro_rh)", "sensor": "BME280 (firmware v3.1+; empty with a BMP280)", "unit": "%RH", "rate": "1 Hz",
+     "notes": "About +/-3 %RH over 0-100 %RH. Used for rh_pct when the DHT11 has no reading. Measures the air at the sensor, so it reads low when the enclosure is warmer than the outside air."},
     {"quantity": "temperature, relative humidity", "sensor": "DHT11", "unit": "degC, %RH", "rate": "1 Hz",
      "notes": "Integer resolution; accuracy about +/-2 degC and +/-5 %RH. Range about 20-90 %RH: firmware v3.0 sends an empty RH when the DHT11 reports 0 (below range)."},
     {"quantity": "light", "sensor": "LDR (light=ldr) or BPW34 photodiode (light=bpw34)", "unit": "V; ohm (LDR) or uA (BPW34)",
@@ -100,9 +102,10 @@ def parse_line(line: str):
             raise ParseError("clip must be 0 or 1")
         fields["clip"] = clip
     elif kind == "E":
-        if len(parts) != 8:
-            raise ParseError(f"E line has {len(parts)} fields, expected 8")
-        fields = dict(zip(ENV_FIELDS, (_number(p) for p in parts[2:])))
+        if len(parts) not in (8, 9):  # 9 from firmware v3.1, which adds baro_rh
+            raise ParseError(f"E line has {len(parts)} fields, expected 8 or 9")
+        fields = dict.fromkeys(ENV_FIELDS)
+        fields.update(zip(ENV_FIELDS, (_number(p) for p in parts[2:])))
     else:
         raise ParseError(f"Unknown line type {kind[:8]!r}")
     t_ms = _number(parts[1], int)
@@ -116,6 +119,7 @@ def associate(wind, env, end_ns: int, window_s: float, stale_after_s: float) -> 
 
     Wind statistics use samples with end_ns - window < host time <= end_ns.
     Environment values are the latest E sample received at or before end_ns.
+    rh_pct is the DHT11 humidity, or the BME280 humidity when the DHT11 has none.
     """
     start_ns = end_ns - round(window_s * 1e9)
     in_window = [w for w in wind if start_ns < w["host_received_ns"] <= end_ns]
@@ -129,7 +133,11 @@ def associate(wind, env, end_ns: int, window_s: float, stale_after_s: float) -> 
         result["taylor_ok"] = mean >= 1 and result["wind_ti"] < 0.5
     latest_env = max((e for e in env if e["host_received_ns"] <= end_ns), key=lambda e: e["host_received_ns"], default=None)
     if latest_env:
-        result.update(air_temp_c=latest_env["baro_c"], dht_temp_c=latest_env["dht_c"], rh_pct=latest_env["dht_rh"],
+        rh, source = latest_env["dht_rh"], "DHT11"
+        if rh is None:
+            rh, source = latest_env.get("baro_rh"), "BME280"
+        result.update(air_temp_c=latest_env["baro_c"], dht_temp_c=latest_env["dht_c"], rh_pct=rh,
+                      rh_source=source if rh is not None else None,
                       pressure_hpa=latest_env["baro_hpa"], light_v=latest_env["light_v"], ldr_ohm=latest_env["light_x"],
                       weather_age_s=(end_ns - latest_env["host_received_ns"]) / 1e9)
     last_wind = max((w["host_received_ns"] for w in in_window), default=None)
@@ -225,7 +233,7 @@ class DemoWeatherSource:
             light = 1.6 + 0.2 * math.sin(phase / 300)
             self.queue.append(f"E,{t_ms},{round(19 + math.sin(phase / 600))},{round(41 + 3 * math.sin(phase / 500))},"
                               f"{835.2 + 0.3 * math.sin(phase / 900):.2f},{18.6 + math.sin(phase / 600):.2f},"
-                              f"{light:.3f},{10000 * (3.3 - light) / light:.0f}")
+                              f"{light:.3f},{10000 * (3.3 - light) / light:.0f},{40.2 + 3 * math.sin(phase / 500):.1f}")
         return self.queue.popleft()
 
     def close(self):
@@ -426,12 +434,14 @@ class WeatherRecorder:
             "header": header,
             "header_note": "Parsed from the firmware's '# ...' header line. If it arrives after the session starts it is filled in when the session ends; null if none was received (for example, the Pico booted before the recorder connected). Every header seen is stored in the weather_headers table.",
             "line_format": {"W": "W,t_ms,v_adc,i_ma,wind_ms,clip (10 Hz)",
-                            "E": "E,t_ms,dht_c,dht_rh,baro_hpa,baro_c,light_v,light_x (1 Hz)"},
+                            "E": "E,t_ms,dht_c,dht_rh,baro_hpa,baro_c,light_v,light_x[,baro_rh] (1 Hz; baro_rh from firmware v3.1)"},
             "sensors": SENSORS,
             "association": {
                 "window_s": w.association_window_s, "stale_after_s": w.stale_after_s,
                 "rule": "Wind statistics use W samples with capture host_received_ns - window_s < host time <= host_received_ns; population std. wind_ti = std/mean, null when mean < 1 m/s. taylor_ok = mean >= 1 m/s and TI < 0.5. Environment fields are the latest E sample at or before the capture; weather_age_s is its age. weather_status: ok (wind and environment both within stale_after_s), stale, missing (no samples), disabled.",
-                "fields": {"air_temp_c": "BMP280 temperature", "dht_temp_c": "DHT11 temperature", "rh_pct": "DHT11 relative humidity",
+                "fields": {"air_temp_c": "BMP280/BME280 temperature", "dht_temp_c": "DHT11 temperature",
+                           "rh_pct": "DHT11 relative humidity, or BME280 humidity (baro_rh) when the DHT11 has no reading (below about 20 %RH or failed)",
+                           "rh_source": "DHT11 or BME280: which sensor rh_pct came from",
                            "pressure_hpa": "BMP280 station pressure", "light_v": "light-sensor voltage",
                            "ldr_ohm": "firmware light_x: LDR resistance (ohm) when light=ldr, photocurrent (uA) when light=bpw34"},
             },

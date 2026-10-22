@@ -3,10 +3,11 @@
 # MicroPython on a Raspberry Pi Pico W. Save on the Pico as main.py so it
 # starts at power-up. Prints newline-terminated ASCII on USB serial:
 #
-#   # pico-weather v3.0 wind=10Hz anemo=4-20mA shunt=165.0ohm range=30.0m/s light=ldr baro=BME280 dht=yes ...
+#   # pico-weather v3.1 wind=10Hz anemo=4-20mA shunt=165.0ohm range=30.0m/s light=ldr baro=BME280 dht=yes ...
 #   W,t_ms,v_adc,i_ma,wind_ms,clip                          10 Hz
-#   E,t_ms,dht_c,dht_rh,baro_hpa,baro_c,light_v,light_x     1 Hz
+#   E,t_ms,dht_c,dht_rh,baro_hpa,baro_c,light_v,light_x,baro_rh   1 Hz
 #
+# baro_rh (v3.1+) is BME280 relative humidity; empty with a BMP280.
 # An empty field means the sensor is missing or the read failed (never 0).
 # The header is repeated every HEADER_EVERY_S so a host that connects late
 # still receives it. Other "#" lines are informational.
@@ -22,7 +23,7 @@ import struct
 import machine
 from machine import ADC, I2C, Pin
 
-VERSION = "v3.0"
+VERSION = "v3.1"
 ANEMO_RANGE = 30.0      # m/s at 20 mA
 SHUNT_OHM = 165.0       # 2 x 330 ohm in parallel
 LIGHT_MODE = "ldr"      # "ldr" or "bpw34"
@@ -55,7 +56,7 @@ def read_adc(adc):
 
 
 class Baro:
-    """BMP280 (chip id 0x58) or BME280 (0x60): temperature and pressure only."""
+    """BMP280 (chip id 0x58) or BME280 (0x60, which also measures humidity)."""
 
     def __init__(self, i2c):
         self.i2c = i2c
@@ -64,35 +65,50 @@ class Baro:
         if self.name is None:
             raise OSError("unknown barometer chip id 0x%02x" % chip)
         self.cal = struct.unpack("<HhhHhhhhhhhh", i2c.readfrom_mem(BARO_ADDR, 0x88, 24))
-        if chip == 0x60:
-            i2c.writeto_mem(BARO_ADDR, 0xF2, b"\x00")   # humidity off (not in the protocol)
+        self.humidity = chip == 0x60
+        if self.humidity:
+            h1 = i2c.readfrom_mem(BARO_ADDR, 0xA1, 1)[0]
+            e = i2c.readfrom_mem(BARO_ADDR, 0xE1, 7)
+            self.hcal = (h1, struct.unpack("<h", e[0:2])[0], e[2],
+                         (struct.unpack("b", e[3:4])[0] << 4) | (e[4] & 0x0F),
+                         (struct.unpack("b", e[5:6])[0] << 4) | (e[4] >> 4),
+                         struct.unpack("b", e[6:7])[0])
+            i2c.writeto_mem(BARO_ADDR, 0xF2, b"\x01")   # humidity x1; must precede ctrl_meas
         i2c.writeto_mem(BARO_ADDR, 0xF5, b"\x20")       # standby 62.5 ms, IIR filter off
         i2c.writeto_mem(BARO_ADDR, 0xF4, b"\x4f")       # temp x2, pressure x4, normal mode
 
     def read(self):
-        """Return (pressure hPa, temperature degC) with the Bosch integer compensation."""
+        """Return (pressure hPa, temperature degC, RH %) with the Bosch integer compensation."""
         T1, T2, T3, P1, P2, P3, P4, P5, P6, P7, P8, P9 = self.cal
-        d = self.i2c.readfrom_mem(BARO_ADDR, 0xF7, 6)
+        d = self.i2c.readfrom_mem(BARO_ADDR, 0xF7, 8 if self.humidity else 6)
         adc_p = (d[0] << 12) | (d[1] << 4) | (d[2] >> 4)
         adc_t = (d[3] << 12) | (d[4] << 4) | (d[5] >> 4)
-        if adc_t == 0x80000 or adc_p == 0x80000:
-            return None, None                            # measurement skipped / not ready
+        if adc_t == 0x80000:
+            return None, None, None                      # measurement skipped / not ready
         v1 = (((adc_t >> 3) - (T1 << 1)) * T2) >> 11
         v2 = (((((adc_t >> 4) - T1) * ((adc_t >> 4) - T1)) >> 12) * T3) >> 14
         t_fine = v1 + v2
         temp_c = ((t_fine * 5 + 128) >> 8) / 100
+        rh = None
+        if self.humidity and ((d[6] << 8) | d[7]) != 0x8000:
+            H1, H2, H3, H4, H5, H6 = self.hcal
+            x = t_fine - 76800
+            x = (((((((d[6] << 8) | d[7]) << 14) - (H4 << 20) - (H5 * x)) + 16384) >> 15) *
+                 (((((((x * H6) >> 10) * (((x * H3) >> 11) + 32768)) >> 10) + 2097152) * H2 + 8192) >> 14))
+            x = x - (((((x >> 15) * (x >> 15)) >> 7) * H1) >> 4)
+            rh = (max(0, min(x, 419430400)) >> 12) / 1024
+        pressure = None
         v1 = t_fine - 128000
         v2 = v1 * v1 * P6 + ((v1 * P5) << 17) + (P4 << 35)
         v1 = ((v1 * v1 * P3) >> 8) + ((v1 * P2) << 12)
         v1 = (((1 << 47) + v1) * P1) >> 33
-        if v1 == 0:
-            return None, temp_c
-        p = 1048576 - adc_p
-        p = (((p << 31) - v2) * 3125) // v1
-        v1 = (P9 * (p >> 13) * (p >> 13)) >> 25
-        v2 = (P8 * p) >> 19
-        p = ((p + v1 + v2) >> 8) + (P7 << 4)
-        return p / 25600, temp_c
+        if v1 != 0 and adc_p != 0x80000:
+            p = 1048576 - adc_p
+            p = (((p << 31) - v2) * 3125) // v1
+            v1 = (P9 * (p >> 13) * (p >> 13)) >> 25
+            v2 = (P8 * p) >> 19
+            pressure = (((p + v1 + v2) >> 8) + (P7 << 4)) / 25600
+        return pressure, temp_c, rh
 
 
 def find_baro():
@@ -189,12 +205,12 @@ def main():
                 dht_rh = None   # DHT11 cannot measure below about 20 %RH; 0 means out of range
         except OSError:
             pass
-        baro_hpa = baro_c = None
+        baro_hpa = baro_c = baro_rh = None
         if baro is None and tick % (ENV_EVERY * 30) == 0:
             baro, scl = find_baro()   # retry every 30 s if it was missing at boot
         if baro is not None:
             try:
-                baro_hpa, baro_c = baro.read()
+                baro_hpa, baro_c, baro_rh = baro.read()
             except OSError:
                 baro = None
         light_v, _ = read_adc(light_adc)
@@ -202,9 +218,10 @@ def main():
             light_x = light_v / R_LIGHT * 1e6                                   # photocurrent, uA
         else:
             light_x = R_LIGHT * (VREF - light_v) / light_v if light_v > 0.005 else None  # LDR ohm
-        print("E,%d,%s,%s,%s,%s,%.3f,%s" % (now, "" if dht_c is None else "%d" % dht_c,
-                                             "" if dht_rh is None else "%d" % dht_rh,
-                                             fmt(baro_hpa, 2), fmt(baro_c, 2), light_v, fmt(light_x, 1)))
+        print("E,%d,%s,%s,%s,%s,%.3f,%s,%s" % (now, "" if dht_c is None else "%d" % dht_c,
+                                                "" if dht_rh is None else "%d" % dht_rh,
+                                                fmt(baro_hpa, 2), fmt(baro_c, 2), light_v, fmt(light_x, 1),
+                                                fmt(baro_rh, 1)))
         if time.ticks_diff(now, last_header) >= HEADER_EVERY_S * 1000:
             last_header = now
             print(head)

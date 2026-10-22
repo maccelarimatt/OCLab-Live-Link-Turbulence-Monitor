@@ -143,7 +143,7 @@ A Raspberry Pi Pico W streams newline-terminated ASCII over USB CDC serial (VID 
 ```text
 # pico-weather v2.1 wind=10Hz anemo=4-20mA shunt=165.0ohm range=30.0m/s light=ldr baro=BMP280 dht=yes
 W,t_ms,v_adc,i_ma,wind_ms,clip                                  # 10 Hz
-E,t_ms,dht_c,dht_rh,baro_hpa,baro_c,light_v,light_x             # 1 Hz
+E,t_ms,dht_c,dht_rh,baro_hpa,baro_c,light_v,light_x[,baro_rh]   # 1 Hz; baro_rh (BME280 humidity) from firmware v3.1
 ```
 
 - Firmware v3.0 pins: wind GP26 (4–20 mA across 165 Ω), LDR GP28 (LDR to 3V3, 1 kΩ to AGND; `light_x` = LDR ohms), BMP280/BME280 on I2C0 SDA GP20 at 0x76, and SCL/DHT11 on GP21/GP17, detected at start-up so either way round works. Constants (range, shunt, `LIGHT_MODE`, `R_LIGHT`) are at the top of `main.py`. Loop current below 3.6 mA (open loop) gives an empty wind field. The header is repeated every 60 s so a late-connecting host still records it.
@@ -164,7 +164,8 @@ Each capture summary gains weather fields computed from samples with `host_recei
 | `wind_ti` | Turbulence intensity `std/mean`; null when the mean is below 1 m/s. |
 | `taylor_ok` | Mean ≥ 1 m/s and TI < 0.5 (a rough frozen-turbulence check). |
 | `air_temp_c`, `pressure_hpa` | BMP280 temperature (the air-temperature reference) and station pressure, not reduced to sea level. |
-| `dht_temp_c`, `rh_pct` | DHT11 temperature and relative humidity (about ±2 °C and ±5 %RH). |
+| `dht_temp_c` | DHT11 temperature (about ±2 °C). |
+| `rh_pct`, `rh_source` | Relative humidity: the DHT11 (±5 %RH) when it has a reading, otherwise the BME280 (±3 %RH, `baro_rh`). The DHT11 cannot measure below about 20 %RH and then reports nothing. `rh_source` records which sensor was used. |
 | `light_v`, `ldr_ohm` | Light-sensor voltage and the firmware's `light_x` (LDR ohms with `light=ldr`, photocurrent µA with `light=bpw34`). |
 | `weather_age_s` | Age of the environment sample used, relative to the capture. |
 | `weather_status` | `ok` (wind and environment both within `stale_after_s`), `stale`, `missing` or `disabled`. |

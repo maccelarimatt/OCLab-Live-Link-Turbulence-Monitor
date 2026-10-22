@@ -25,12 +25,12 @@ SUMMARY_COLUMNS = [
     # Schema 2: weather associated with each capture (see weather.associate).
     "wind_mean_ms", "wind_std_ms", "wind_max_ms", "wind_n", "wind_ti", "taylor_ok",
     "air_temp_c", "dht_temp_c", "rh_pct", "pressure_hpa", "light_v", "ldr_ohm",
-    "weather_age_s", "weather_status",
+    "weather_age_s", "weather_status", "rh_source",
 ]
 WEATHER_COLUMNS = [
     "kind", "host_received_utc", "host_received_ns", "source", "pico_t_ms",
     "v_adc", "i_ma", "wind_ms", "clip",
-    "dht_c", "dht_rh", "baro_hpa", "baro_c", "light_v", "light_x", "raw",
+    "dht_c", "dht_rh", "baro_hpa", "baro_c", "light_v", "light_x", "baro_rh", "raw",
 ]
 
 
@@ -76,7 +76,7 @@ class Store:
                 CREATE TABLE IF NOT EXISTS env_samples (
                     id INTEGER PRIMARY KEY, host_received_ns INTEGER NOT NULL, source TEXT NOT NULL,
                     pico_t_ms INTEGER NOT NULL, dht_c REAL, dht_rh REAL, baro_hpa REAL, baro_c REAL,
-                    light_v REAL, light_x REAL, raw TEXT NOT NULL
+                    light_v REAL, light_x REAL, raw TEXT NOT NULL, baro_rh REAL
                 );
                 CREATE INDEX IF NOT EXISTS env_time ON env_samples(host_received_ns);
                 CREATE TABLE IF NOT EXISTS weather_headers (
@@ -84,6 +84,9 @@ class Store:
                     header TEXT NOT NULL, raw TEXT NOT NULL
                 );
             """)
+            # Databases created before firmware v3.1 lack the BME280 humidity column.
+            if "baro_rh" not in {r[1] for r in db.execute("PRAGMA table_info(env_samples)")}:
+                db.execute("ALTER TABLE env_samples ADD COLUMN baro_rh REAL")
 
     @contextmanager
     def connect(self):
@@ -152,8 +155,8 @@ class Store:
         with self.connect() as db:
             db.executemany("INSERT INTO wind_samples(host_received_ns,source,pico_t_ms,v_adc,i_ma,wind_ms,clip,raw) VALUES(?,?,?,?,?,?,?,?)",
                            [(w["host_received_ns"], source, w["t_ms"], w["v_adc"], w["i_ma"], w["wind_ms"], w["clip"], w["raw"]) for w in wind])
-            db.executemany("INSERT INTO env_samples(host_received_ns,source,pico_t_ms,dht_c,dht_rh,baro_hpa,baro_c,light_v,light_x,raw) VALUES(?,?,?,?,?,?,?,?,?,?)",
-                           [(e["host_received_ns"], source, e["t_ms"], e["dht_c"], e["dht_rh"], e["baro_hpa"], e["baro_c"], e["light_v"], e["light_x"], e["raw"]) for e in env])
+            db.executemany("INSERT INTO env_samples(host_received_ns,source,pico_t_ms,dht_c,dht_rh,baro_hpa,baro_c,light_v,light_x,baro_rh,raw) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                           [(e["host_received_ns"], source, e["t_ms"], e["dht_c"], e["dht_rh"], e["baro_hpa"], e["baro_c"], e["light_v"], e["light_x"], e.get("baro_rh"), e["raw"]) for e in env])
             db.executemany("INSERT INTO weather_headers(host_received_ns,source,header,raw) VALUES(?,?,?,?)",
                            [(h["host_received_ns"], source, json.dumps(h["header"]), h["raw"]) for h in headers])
 
@@ -165,7 +168,7 @@ class Store:
                 "SELECT host_received_ns/1000000000 AS second, avg(wind_ms) AS mean_ms, max(wind_ms) AS max_ms, count(wind_ms) AS n "
                 "FROM wind_samples WHERE source=? AND host_received_ns>? GROUP BY second ORDER BY second", (source, since_ns)).fetchall()
             env = db.execute(
-                "SELECT host_received_ns,pico_t_ms,dht_c,dht_rh,baro_hpa,baro_c,light_v,light_x "
+                "SELECT host_received_ns,pico_t_ms,dht_c,dht_rh,baro_hpa,baro_c,light_v,light_x,baro_rh "
                 "FROM env_samples WHERE source=? AND host_received_ns>? ORDER BY host_received_ns", (source, since_ns)).fetchall()
         return {"wind": [{"t_ns": r["second"] * 1_000_000_000 + 500_000_000, "mean_ms": r["mean_ms"], "max_ms": r["max_ms"], "n": r["n"]}
                          for r in wind if r["n"]],
@@ -180,11 +183,12 @@ class Store:
         query = """
             SELECT * FROM (
                 SELECT 'W' AS kind, id, host_received_ns, source, pico_t_ms, v_adc, i_ma, wind_ms, clip,
-                       NULL AS dht_c, NULL AS dht_rh, NULL AS baro_hpa, NULL AS baro_c, NULL AS light_v, NULL AS light_x, raw
+                       NULL AS dht_c, NULL AS dht_rh, NULL AS baro_hpa, NULL AS baro_c, NULL AS light_v, NULL AS light_x,
+                       NULL AS baro_rh, raw
                 FROM wind_samples WHERE source=? AND host_received_ns>=? AND host_received_ns<=?
                 UNION ALL
                 SELECT 'E', id, host_received_ns, source, pico_t_ms, NULL, NULL, NULL, NULL,
-                       dht_c, dht_rh, baro_hpa, baro_c, light_v, light_x, raw
+                       dht_c, dht_rh, baro_hpa, baro_c, light_v, light_x, baro_rh, raw
                 FROM env_samples WHERE source=? AND host_received_ns>=? AND host_received_ns<=?
             ) WHERE (host_received_ns, kind, id) > (?, ?, ?) ORDER BY host_received_ns, kind, id LIMIT 2000"""
         last = (from_ns, "", 0)  # Every kind sorts after "", so from_ns itself is included.

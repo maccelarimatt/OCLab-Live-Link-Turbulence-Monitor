@@ -67,8 +67,10 @@ function renderWeather(w) {
   $("wx-wind").textContent = fmt(last ? last.mean_ms : wind.wind_ms, 1);
   $("wx-wind-note").textContent = wind.clip === 1 ? "ADC clipped · wind above range" : last ? `1 s mean · max ${fmt(last.max_ms, 1)} · ${last.n} samples` : "Latest sample";
   $("wx-air").textContent = fmt(env.baro_c, 1);
-  $("wx-rh").textContent = fmt(env.dht_rh, 0);
-  $("wx-rh-note").textContent = `DHT11 · ${fmt(env.dht_c, 0)} °C · ±5 %RH`;
+  // DHT11 humidity when it has one; otherwise BME280 (the DHT11 cannot read below about 20 %RH).
+  const dhtRh = Number.isFinite(env.dht_rh), baroRh = Number.isFinite(env.baro_rh);
+  $("wx-rh").textContent = fmt(dhtRh ? env.dht_rh : env.baro_rh, dhtRh ? 0 : 1);
+  $("wx-rh-note").textContent = dhtRh ? `DHT11 · ${fmt(env.dht_c, 0)} °C · ±5 %RH` : baroRh ? `BME280 · ±3 %RH · DHT11 ${Number.isFinite(env.dht_c) ? "below range" : "no reading"}` : "DHT11 / BME280 · no reading";
   $("wx-pressure").textContent = fmt(env.baro_hpa, 1);
   $("wx-light").textContent = fmt(env.light_v, 2);
   $("wx-light-note").textContent = w.header?.light === "bpw34" ? `BPW34 · ${fmt(env.light_x, 1)} µA` : `LDR · ${Number.isFinite(env.light_x) ? fmt(env.light_x / 1000, 1) + " kΩ" : "—"}`;

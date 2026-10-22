@@ -76,7 +76,10 @@ def rows(store, table):
 def test_parse_valid_wind_and_environment_lines():
     assert parse_line("W,123456,0.8251,5.001,0.002,0\r\n") == ("W", {"t_ms": 123456, "v_adc": 0.8251, "i_ma": 5.001, "wind_ms": 0.002, "clip": 0})
     assert parse_line("E,123500,19,41,835.21,18.62,1.604,10574") == ("E", {
-        "t_ms": 123500, "dht_c": 19.0, "dht_rh": 41.0, "baro_hpa": 835.21, "baro_c": 18.62, "light_v": 1.604, "light_x": 10574.0})
+        "t_ms": 123500, "dht_c": 19.0, "dht_rh": 41.0, "baro_hpa": 835.21, "baro_c": 18.62, "light_v": 1.604, "light_x": 10574.0,
+        "baro_rh": None})  # Firmware before v3.1
+    assert parse_line("E,123500,39,,825.8,38.5,2.28,445.4,10.4")[1]["baro_rh"] == 10.4  # v3.1 adds BME280 humidity
+    assert parse_line("E,123500,39,,825.8,38.5,2.28,445.4,")[1]["baro_rh"] is None
 
 
 def test_empty_fields_are_null_never_zero():
@@ -89,7 +92,7 @@ def test_empty_fields_are_null_never_zero():
 
 
 @pytest.mark.parametrize("line", [
-    "", "   ", "W,123,0.8,5.0", "W,123,0.8,5.0,0.1,0,9", "E,1,2", "2,0.8,5.0,0.1,0", "51,0.8,5.0,0.1,0",
+    "", "   ", "W,123,0.8,5.0", "W,123,0.8,5.0,0.1,0,9", "E,1,2", "E,1,19,41,835.2,18.6,1.6,9000,10.4,99", "2,0.8,5.0,0.1,0", "51,0.8,5.0,0.1,0",
     "X,1,2,3", "W,,0.8,5.0,0.1,0", "W,-5,0.8,5.0,0.1,0", "W,1,0.8,abc,0.1,0", "W,1,0.8,5.0,0.1,2",
     "W,1.5,0.8,5.0,0.1,0", "E,1,19,41,835.2,18.6,1.6,1.2.3", "\x00\x01garbage", "W,1,0.8,5.0,0.1",
 ])
@@ -135,6 +138,28 @@ def test_association_window_edges_and_statistics():
     assert result["pressure_hpa"] == 835.0 and result["ldr_ohm"] == 10000.0
     assert result["weather_age_s"] == pytest.approx(2.0)
     assert result["weather_status"] == "ok"
+
+
+def test_humidity_falls_back_to_bme280_only_when_dht11_has_none():
+    end = 1000 * S
+    both = associate([wind_at(end, 3.0)], [env_at(end, dht_rh=25.0, baro_rh=21.7)], end, 10, 5)
+    assert (both["rh_pct"], both["rh_source"]) == (25.0, "DHT11")
+    dry = associate([wind_at(end, 3.0)], [env_at(end, dht_rh=None, baro_rh=10.4)], end, 10, 5)
+    assert (dry["rh_pct"], dry["rh_source"]) == (10.4, "BME280")
+    neither = associate([wind_at(end, 3.0)], [env_at(end, dht_rh=None)], end, 10, 5)  # Old firmware: no baro_rh key
+    assert neither["rh_pct"] is None and neither["rh_source"] is None
+
+
+def test_existing_database_gains_baro_rh_column(tmp_path):
+    import sqlite3
+    with sqlite3.connect(tmp_path / "recordings.sqlite3") as db:
+        db.execute("CREATE TABLE env_samples (id INTEGER PRIMARY KEY, host_received_ns INTEGER NOT NULL, source TEXT NOT NULL, "
+                   "pico_t_ms INTEGER NOT NULL, dht_c REAL, dht_rh REAL, baro_hpa REAL, baro_c REAL, light_v REAL, light_x REAL, raw TEXT NOT NULL)")
+        db.execute("INSERT INTO env_samples VALUES (1, 5, 'hardware', 1, 39, NULL, 825.0, 38.0, 2.2, 450.0, 'E,1,39,,825.0,38.0,2.2,450.0')")
+    store = Store(str(tmp_path))
+    store.save_weather("hardware", [], [{"host_received_ns": 6, "t_ms": 2, "dht_c": 39.0, "dht_rh": None, "baro_hpa": 825.0,
+                                         "baro_c": 38.0, "light_v": 2.2, "light_x": 450.0, "baro_rh": 10.4, "raw": "E,2,..."}])
+    assert [r["baro_rh"] for r in rows(store, "env_samples")] == [None, 10.4]  # Old row kept, new value stored
 
 
 def test_association_with_no_samples_is_missing_not_zero():
@@ -402,9 +427,10 @@ def test_weather_api_and_summary_csv(tmp_path):
         session_id = recorder.snapshot()["status"]["session_id"]
         recorder.stop()
         summary = list(csv.DictReader(io.StringIO(client.get(f"/api/sessions/{session_id}/summary.csv").text)))
-        assert list(summary[0])[-14:] == ["wind_mean_ms", "wind_std_ms", "wind_max_ms", "wind_n", "wind_ti", "taylor_ok",
+        assert list(summary[0])[-15:] == ["wind_mean_ms", "wind_std_ms", "wind_max_ms", "wind_n", "wind_ti", "taylor_ok",
                                           "air_temp_c", "dht_temp_c", "rh_pct", "pressure_hpa", "light_v", "ldr_ohm",
-                                          "weather_age_s", "weather_status"]
+                                          "weather_age_s", "weather_status", "rh_source"]
+        assert summary[-1]["rh_source"] == "DHT11"  # Demo DHT11 always reads in range
         assert list(summary[0])[:3] == ["capture_id", "session_id", "source"]
         weather = list(csv.DictReader(io.StringIO(client.get(f"/api/sessions/{session_id}/weather.csv").text)))
         assert weather and {r["source"] for r in weather} == {"demo"}
