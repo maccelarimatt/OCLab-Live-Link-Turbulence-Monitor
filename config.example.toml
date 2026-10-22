@@ -3,14 +3,18 @@ mode = "hardware"                     # "demo" explicitly generates synthetic da
 data_dir = "./data"
 host = "127.0.0.1"                     # Use a reverse proxy for public HTTPS
 port = 8000
-capture_interval_s = 0.5               # Minimum time between capture starts
+capture_interval_s = 0                 # Minimum time between capture starts; 0 = back-to-back bursts
 session_duration_s = 3600              # Automatically rotate recording sessions
 minimum_free_disk_mb = 1024            # Pause recording below this; never delete data
 retry_interval_s = 5
 
 [scope]
-sample_rate = 25000                    # Samples/s WITHIN each burst, per channel
-depth = 4096
+sample_rate = 25000                    # Scope samples/s WITHIN each burst, per channel (minimum 25000)
+depth = 16384                          # Samples per burst: 4096, 8192 or 16384 (16384 = 0.655 s at 25 kS/s)
+# Operating frequency: archived samples/s per channel after anti-alias filtering.
+# Must divide sample_rate. Usable bandwidth = 0.4 x store_rate_hz (2500 -> 1 kHz).
+# Override at start-up with: ./run.sh --store-rate 5000
+store_rate_hz = 2500
 volts_per_div = [1.0, 1.0, 1.0, 1.0]   # Scope input ranges, before probe multipliers
 probe_factors = [1.0, 1.0, 1.0, 1.0]   # 1 for direct BNC; match actual probes
 x_channel = 1

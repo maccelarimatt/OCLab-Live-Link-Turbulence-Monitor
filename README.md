@@ -103,11 +103,24 @@ For another machine on the local network, pass `--host 0.0.0.0` and browse to th
 
 ### Bursts, rates and timestamps
 
-The upstream driver supports four-channel **burst acquisition**, not gapless streaming. The defaults are 25,000 samples/s/channel, 4,096 samples/capture (163.84 ms), and a minimum 0.5 s interval between capture starts. USB transfer and processing may extend this interval. High sample rates increase the bandwidth within a burst, not the dashboard update rate. At the defaults the nominal waveform coverage is at most about 33% of wall time, before additional delays.
+The upstream driver supports four-channel **burst acquisition**, not gapless streaming. The example configuration is set up for turbulence: 25,000 samples/s/channel within each burst, 16,384 samples per burst (0.655 s) and back-to-back captures (`capture_interval_s = 0`). Between bursts there is a gap for USB transfer and re-arming; the dashboard shows the measured **time coverage** (burst time / wall time), and `minutes.csv` reports it per minute. Processing takes about 1–2 % of each burst, so the gaps come from the scope link, not the PC.
+
+### Operating frequency and anti-alias filtering
+
+The scope cannot sample below 25 kS/s, so each burst is low-pass filtered on the PC and decimated to the **operating frequency**, `[scope].store_rate_hz` (default 2,500 samples/s per channel). Set it in the configuration or at start-up with `./run.sh --store-rate HZ` (and the scope rate with `--scope-rate HZ`); a change starts a new session with new metadata.
+
+- `store_rate_hz` must divide the scope `sample_rate` (for 25 kS/s: 25000, 12500, 6250, 5000, 3125, 2500, 1250, 1000, 625, 500, ...). Setting it equal to `sample_rate` stores every scope sample unfiltered.
+- The filter is a linear-phase Kaiser FIR: flat (±0.01 dB) to **0.4 × store_rate_hz**, at least 60 dB down from 0.5 × store_rate_hz, so nothing above the output Nyquist frequency aliases into the data. Usable bandwidth is therefore 0.4 × the operating frequency: 2,500 Sa/s gives 1 kHz, enough for content to 500 Hz with margin. For content up to *f*, choose `store_rate_hz` ≥ 2.5 *f*.
+- Only fully filtered outputs are kept: (taps − 1) scope samples per burst are not stored (29 ms of 655 ms at 2,500 Sa/s). Stored sample *k* is at `t0_s + k / store_rate_hz` after the burst's first scope sample; `t0_s` is half the filter length.
+- Averaging also reduces scope quantisation noise, so stored values keep sub-code resolution (int16, 1/64 ADC code).
+- `clipped` marks stored samples whose filter window included an ADC-rail sample on X, Y or SUM.
+- Each capture's `scintillation_index` = var(SUM)/mean(SUM)² over the valid stored samples. It is band-limited to the operating bandwidth and includes detector and scope noise; it is not by itself Cn².
+
+Per-capture voltage means, position and wander statistics are still computed from every scope sample before decimation.
 
 - `host_started_utc` / `host_started_ns`: host time just before invoking acquisition (including connection setup on the first attempt).
 - `host_received_utc` / `host_received_ns`: host time immediately after the driver returns the capture.
-- `sample_time_s`: time relative to the first sample in that burst, `sample_index / sample_rate_hz`. It is **not** an absolute UTC sample timestamp or a time across concatenated bursts.
+- `sample_time_s`: time relative to the first scope sample in that burst, `t0_s + sample_index / store_rate_hz` (schema 3; `sample_index / sample_rate_hz` for older sessions). It is **not** an absolute UTC sample timestamp or a time across concatenated bursts.
 - `acquisition_elapsed_s` and `since_previous_start_s`: monotonic host timing for acquisition latency and the interval from the previous successfully saved capture start. Failed attempts therefore leave an observable gap.
 
 Synchronise the PC clock with NTP. The scope supplies no GPS/PPS or hardware UTC time through this driver. Do not concatenate raw files as if bursts were contiguous, or infer exact sample UTC times by adding relative time to a host timestamp. Spectral/turbulence analysis must account for sampling gaps, detector bandwidth, scope settings and calibration.
@@ -183,7 +196,9 @@ The archive is `data_dir/recordings.sqlite3` (SQLite WAL mode). Each capture ato
 | Download | Contents |
 | --- | --- |
 | `summary.csv` | One row per capture: source, IDs, host timestamps, acquisition timing, voltage means/std, position, radial RMS, quality fractions and, from schema version 2, the weather fields above (appended after the original columns). |
-| `raw.csv.gz` | One row per sample: capture ID, source, host timestamps, relative sample time, all four probe-corrected voltages and all four raw wire codes. Opens with pandas or gzip. |
+| `raw.csv.gz` | One row per stored sample: capture ID, source, host timestamps, relative sample time, all four probe-corrected voltages (filtered and decimated to the operating frequency) and the `clipped` flag. Sessions recorded before schema 3 contain every scope sample and the four raw wire codes instead. Opens with pandas or gzip. |
+| `minutes.csv` | One row per UTC minute: captures, covered seconds and time coverage, mean and median scintillation index, mean wander RMS, SUM, valid fraction, wind, air temperature, humidity and pressure. |
+| `session.npz` | The whole session for analysis in NumPy: `codes` (captures × 4 × samples, int16; volts = codes × `volts_per_count`), `clipped`, capture IDs and host times, `t0_s`, `store_rate_hz`, and per-minute mean one-sided spectra (`psd_freq_hz`, `psd_intensity` of SUM/mean, `psd_x`, `psd_y`) from fully valid bursts. A `readme` array describes the contents. About 80 MB per hour at the defaults; sessions over 1.5 GB are refused (keep hourly sessions). |
 | `weather.csv` | Every wind (`kind=W`) and environment (`kind=E`) sample from the session start minus `association_window_s` to the session end, in host time order. Includes host timestamps, source, Pico `t_ms`, parsed fields and the raw line; fields that do not apply to a row, and missing sensor values, are empty. |
 | `metadata.json` | Session counts/state, driver revision, software version, channel mapping, acquisition settings, calibration, experiment description and reuse terms. |
 
@@ -195,6 +210,7 @@ import pandas as pd
 base = "https://YOUR-DOMAIN/api/sessions/SESSION-ID"
 summary = pd.read_csv(base + "/summary.csv")
 raw = pd.read_csv(base + "/raw.csv.gz", compression="gzip")
+minutes = pd.read_csv(base + "/minutes.csv")
 weather = pd.read_csv(base + "/weather.csv")
 wind = weather[weather.kind == "W"]
 # Analyse separate bursts; do not assume adjacent capture IDs are contiguous samples.
@@ -203,7 +219,7 @@ first_burst = raw[raw.capture_id == raw.capture_id.iloc[0]]
 
 Set `[experiment].data_license` and `contact` to your lab-approved research reuse terms before publishing. Public downloads do not themselves grant a particular licence; the default explicitly leaves terms unspecified. Metadata may be public, so include only information you intend to share. The visual identity is inspired by the [Wits OC Lab](https://www.wits.ac.za/oclab/); this application does not include or invent an official university crest.
 
-Disk usage depends heavily on noise/compressibility, sample depth and capture frequency. At the defaults an uncompressed capture is roughly 180 KiB including time arrays; 172,800 captures/day would be about 30 GiB/day before compression and database overhead. Measure your actual database growth and provision space accordingly. Sessions rotate hourly, **the database file does not rotate**. Session rotation is organisational, not a retention policy. The recorder pauses below the configured free-space reserve and resumes when space is available. Nothing is automatically deleted. Store the database on a suitably sized volume and monitor it.
+Disk usage depends on the operating frequency, signal noise and time coverage. At 2,500 Sa/s with four channels, a realistically noisy signal measured about 12 KiB per 0.655 s burst including database overhead: **at most about 1.7 GB/day** even with no gaps, and less in practice. Doubling the operating frequency roughly doubles this. Sessions recorded before schema 3 stored every scope sample as 64-bit floats (about 10 times more). Measure your actual database growth and provision space accordingly. Sessions rotate hourly, **the database file does not rotate**. Session rotation is organisational, not a retention policy. The recorder pauses below the configured free-space reserve and resumes when space is available. Nothing is automatically deleted. Store the database on a suitably sized volume and monitor it.
 
 For a live backup use SQLite's backup API, not a standalone copy of the `.sqlite3` file while the recorder is writing:
 
@@ -233,7 +249,9 @@ Interactive schema: `/docs`. All application endpoints are read-only; there are 
 | `GET /api/history?limit=600` | Latest summaries, oldest first; limit 1–7,200. |
 | `GET /api/sessions?limit=20&offset=0` | Paginated archive, newest first; maximum page size 100. |
 | `GET /api/sessions/{id}/summary.csv` | Capture summaries. |
-| `GET /api/sessions/{id}/raw.csv.gz` | Full sample export. |
+| `GET /api/sessions/{id}/raw.csv.gz` | Full stored-sample export. |
+| `GET /api/sessions/{id}/minutes.csv` | Per-minute coverage, scintillation and weather. |
+| `GET /api/sessions/{id}/session.npz` | Whole session as NumPy arrays with per-minute spectra (schema 3+; 409 for older sessions, 413 if over 1.5 GB). |
 | `GET /api/sessions/{id}/weather.csv` | All weather samples for the session's time span. |
 | `GET /api/sessions/{id}/metadata.json` | Session metadata. |
 

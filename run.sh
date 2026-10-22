@@ -7,6 +7,7 @@
 #   ./run.sh --flash         (re)install the Pico weather firmware first
 #   ./run.sh --setup-only    set up and check devices, do not start
 #   ./run.sh --yes           answer yes to prompts (unattended use)
+#   ./run.sh --store-rate 5000   operating frequency: stored samples/s (bandwidth 0.4 x)
 # Other options pass through to oclab, e.g. ./run.sh --host 0.0.0.0
 set -euo pipefail
 
