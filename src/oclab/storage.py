@@ -42,6 +42,10 @@ def ns_to_utc(value: int) -> str:
     return datetime.fromtimestamp(value / 1e9, timezone.utc).isoformat(timespec="microseconds")
 
 
+def utc_to_ns(value: str) -> int:
+    return round(datetime.fromisoformat(value).timestamp() * 1e6) * 1000
+
+
 class Store:
     def __init__(self, data_dir: str):
         self.root = Path(data_dir).resolve()

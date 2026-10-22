@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 import json
 from pathlib import Path
 import threading
+import time
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -12,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import Settings
 from .service import Recorder
+from .storage import utc_to_ns
 
 
 class ManagedStream(StreamingResponse):
@@ -73,12 +75,25 @@ def create_app(settings: Settings | None = None, recorder: Recorder | None = Non
 
     @app.get("/api/health")
     def health():
-        state = recorder.snapshot()["status"]
-        return JSONResponse(state, status_code=200 if state["recording"] else 503)
+        snapshot = recorder.snapshot()
+        state = snapshot["status"]
+        # The status code reflects the scope only; weather is reported alongside.
+        w = snapshot["weather"]
+        weather = {k: w[k] for k in ("enabled", "state", "message", "stale", "age_s", "port")}
+        return JSONResponse({**state, "weather": weather}, status_code=200 if state["recording"] else 503)
 
     @app.get("/api/history")
     def history(limit: int = Query(600, ge=1, le=7200)):
         return {"items": recorder.store.history(limit)}
+
+    @app.get("/api/weather/live")
+    def weather_live():
+        return recorder.weather.snapshot()
+
+    @app.get("/api/weather/history")
+    def weather_history(seconds: int = Query(300, ge=1, le=3600)):
+        since_ns = time.time_ns() - seconds * 1_000_000_000
+        return {"seconds": seconds, "source": settings.mode, **recorder.store.weather_history(settings.mode, since_ns)}
 
     @app.get("/api/events")
     async def events(request: Request):
@@ -121,6 +136,25 @@ def create_app(settings: Settings | None = None, recorder: Recorder | None = Non
         return ManagedStream(generator, release=exports.release, media_type="application/gzip" if raw else "text/csv",
                                  headers={"Content-Disposition": f'attachment; filename="{session["id"]}-{suffix}"',
                                           "X-Export-Through-Capture-ID": str(session["export_through_capture_id"])})
+
+    @app.get("/api/sessions/{session_id}/weather.csv")
+    def weather_csv(session_id: str):
+        session = get_session(session_id)
+        # Include the association window before the session's first capture.
+        association = (session["metadata"].get("weather") or {}).get("association") or {}
+        window_s = association.get("window_s", settings.weather.association_window_s)
+        from_ns = utc_to_ns(session["started_utc"]) - round(window_s * 1e9)
+        through_ns = utc_to_ns(session["ended_utc"]) if session["ended_utc"] else time.time_ns()
+        with recorder.weather.mutex:
+            committed = recorder.weather.committed_through_ns
+        if committed is not None:
+            through_ns = min(through_ns, committed)  # Rows still waiting for the next flush are excluded.
+        if not exports.acquire(blocking=False):
+            raise HTTPException(429, "Two exports are already running; retry shortly", headers={"Retry-After": "10"})
+        return ManagedStream(recorder.store.weather_csv(session["mode"], from_ns, through_ns), release=exports.release,
+                             media_type="text/csv",
+                             headers={"Content-Disposition": f'attachment; filename="{session["id"]}-weather.csv"',
+                                      "X-Export-Weather-From-NS": str(from_ns), "X-Export-Weather-Through-NS": str(through_ns)})
 
     @app.get("/api/sessions/{session_id}/summary.csv")
     def summary_csv(session_id: str):
