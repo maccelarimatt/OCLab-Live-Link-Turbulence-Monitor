@@ -44,3 +44,11 @@ location = "Johannesburg, South Africa"
 data_license = "Not specified — contact the lab for reuse terms"
 contact = ""                          # Public contact email or URL
 
+
+[weather]
+# Raspberry Pi Pico W weather station on USB serial (/dev/ttyACM*).
+enabled = true
+# port = "/dev/serial/by-id/usb-MicroPython_Board_in_FS_mode_XXXX-if00"  # Default: auto-detect VID 0x2E8A
+baud = 115200
+association_window_s = 10.0            # Wind statistics use this window ending at each capture
+stale_after_s = 5.0                    # Weather older than this is reported as stale

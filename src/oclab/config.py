@@ -52,6 +52,15 @@ class Experiment:
 
 
 @dataclass
+class WeatherSettings:
+    enabled: bool = True
+    port: str | None = None                # None auto-detects the Pico by USB VID 0x2E8A
+    baud: int = 115200
+    association_window_s: float = 10.0
+    stale_after_s: float = 5.0
+
+
+@dataclass
 class Settings:
     mode: str = "hardware"
     data_dir: str = "./data"
@@ -64,6 +73,7 @@ class Settings:
     scope: ScopeSettings = field(default_factory=ScopeSettings)
     calibration: Calibration = field(default_factory=Calibration)
     experiment: Experiment = field(default_factory=Experiment)
+    weather: WeatherSettings = field(default_factory=WeatherSettings)
 
     def validate(self) -> None:
         # Reject NaN/Inf from TOML before they can reach scientific calculations/JSON.
@@ -96,6 +106,13 @@ class Settings:
             raise ValueError("Position scales must be nonzero (negative reverses the axis)")
         if self.experiment.one_way_distance_m <= 0 or self.experiment.wavelength_nm <= 0:
             raise ValueError("Distance and wavelength must be positive")
+        w = self.weather
+        if type(w.enabled) is not bool or (w.port is not None and (type(w.port) is not str or not w.port)):
+            raise ValueError("weather.enabled must be true/false and weather.port a device path")
+        if type(w.baud) is not int or w.baud <= 0:
+            raise ValueError("weather.baud must be a positive integer")
+        if not 1 <= w.association_window_s <= 3600 or not 0.5 <= w.stale_after_s <= 3600:
+            raise ValueError("weather.association_window_s must be 1-3600 s; stale_after_s 0.5-3600 s")
 
     def public(self) -> dict:
         data = asdict(self)
@@ -109,7 +126,8 @@ def load_settings(path: str | None = None, **overrides) -> Settings:
     if path:
         with Path(path).open("rb") as stream:
             data = tomllib.load(stream)
-    for name, cls in (("scope", ScopeSettings), ("calibration", Calibration), ("experiment", Experiment)):
+    for name, cls in (("scope", ScopeSettings), ("calibration", Calibration), ("experiment", Experiment),
+                      ("weather", WeatherSettings)):
         if name in data:
             data[name] = cls(**data[name])
     data.update({k: v for k, v in overrides.items() if v is not None})
