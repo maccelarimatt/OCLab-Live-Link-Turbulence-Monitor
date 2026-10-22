@@ -10,15 +10,18 @@ import time
 from .acquisition import DemoSource, HardwareSource, analyse
 from .config import Settings
 from .storage import Store, ns_to_utc
+from .weather import WeatherRecorder, unavailable
 
 logger = logging.getLogger(__name__)
 
 
 class Recorder:
-    def __init__(self, settings: Settings, source=None):
+    def __init__(self, settings: Settings, source=None, weather_source=None):
         self.settings = settings
         self.store = Store(settings.data_dir)
         self.source = source or (DemoSource(settings) if settings.mode == "demo" else HardwareSource(settings))
+        # Separate thread and state; shares only the store and the process lock.
+        self.weather = WeatherRecorder(settings, self.store, weather_source)
         self.stop_event = threading.Event()
         self.mutex = threading.Lock()
         self.latest = None
@@ -40,20 +43,25 @@ class Recorder:
             raise RuntimeError("Another recorder is using this data directory. Run exactly one worker.") from exc
         try:
             self.store.recover()
+            self.weather.start()
             self.thread = threading.Thread(target=self.run, name="oclab-recorder", daemon=True)
             self.thread.start()
         except Exception:
+            self.weather.stop()
             self.file_lock.close()
             raise
 
     def stop(self):
         self.stop_event.set()
+        weather_stopped = self.weather.stop()
         if self.thread:
             self.thread.join(timeout=30)
             if self.thread.is_alive():
                 # Keep the process lock held; systemd will kill a stuck USB operation.
                 logger.error("USB worker did not stop within 30 seconds")
                 return
+        if not weather_stopped:
+            return
         if self.file_lock:
             self.file_lock.close()
 
@@ -70,7 +78,7 @@ class Recorder:
                 "stale": stale, "last_capture_age_s": age, "session_id": self.session_id,
                 "recording": self.state == "recording" and not stale,
                 "free_disk_mb": self.free_disk_mb,
-            }, "latest": self.latest}
+            }, "latest": self.latest, "weather": self.weather.snapshot()}
 
     def captures_since(self, capture_id):
         with self.mutex:
@@ -120,9 +128,15 @@ class Recorder:
                                    host_received_ns=received_ns, host_started_utc=ns_to_utc(started_ns),
                                    host_received_utc=ns_to_utc(received_ns), acquisition_elapsed_s=elapsed,
                                    since_previous_start_s=None if previous_start is None else start - previous_start)
+                    try:
+                        summary.update(self.weather.associate(received_ns))
+                    except Exception:
+                        # Weather problems must never stop scope recording.
+                        logger.exception("Weather association failed")
+                        summary.update(unavailable("missing"))
                     if self.session_id is None or start - session_started >= self.settings.session_duration_s:
                         self.end_session()
-                        self.session_id = self.store.start_session(self.settings)
+                        self.session_id = self.store.start_session(self.settings, self.weather.metadata())
                         session_started = start
                     saved = self.store.save(self.session_id, capture, summary)
                     previous_start = start
