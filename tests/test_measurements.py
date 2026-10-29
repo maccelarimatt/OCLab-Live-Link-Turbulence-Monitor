@@ -106,6 +106,9 @@ def test_example_config_is_valid():
 def test_real_adapter_uses_pinned_driver_api(monkeypatch):
     calls = []
     class Scope:
+        _position_calibration = (1,)  # Calibration table read from the unit's EEPROM
+        _scale_calibration = (1,)
+
         @classmethod
         def open(cls, config, bus, address):
             calls.append((config, bus, address))
@@ -127,3 +130,66 @@ def test_real_adapter_uses_pinned_driver_api(monkeypatch):
     source.capture()
     assert len(calls) == 3
 
+
+
+class FlakyScope:
+    """Driver stand-in whose EEPROM calibration read fails for the first `failures` opens."""
+    failures = 0
+    opened = closed = 0
+
+    @classmethod
+    def open(cls, config, bus, address):
+        cls.opened += 1
+        scope = cls()
+        scope._position_calibration = None if cls.opened <= cls.failures else (1,)
+        scope._scale_calibration = scope._position_calibration
+        return scope
+
+    def capture(self):
+        return waveform()
+
+    def close(self):
+        FlakyScope.closed += 1
+
+
+@pytest.fixture
+def flaky(monkeypatch):
+    monkeypatch.setattr("oclab.acquisition.Hantek6254BC", FlakyScope)
+    monkeypatch.setattr("oclab.acquisition.time.sleep", lambda s: None)
+    FlakyScope.opened = FlakyScope.closed = 0
+    return FlakyScope
+
+
+def test_scope_reopened_until_zero_level_calibration_loads(flaky):
+    flaky.failures = 2
+    source = HardwareSource(Settings())
+    source.capture()
+    assert flaky.opened == 3 and flaky.closed == 2  # The two uncalibrated opens were released
+
+
+def test_scope_without_calibration_is_never_used(flaky):
+    from oclab.acquisition import CALIBRATION_ATTEMPTS, CalibrationUnavailable
+    flaky.failures = 99
+    source = HardwareSource(Settings())
+    with pytest.raises(CalibrationUnavailable):
+        source.capture()
+    assert flaky.opened == flaky.closed == CALIBRATION_ATTEMPTS
+    assert source.scope is None
+
+
+def test_unused_channel_level_is_reported():
+    capture = waveform()
+    capture.volts[3] = 1.23  # CH4 not mapped to X/Y/SUM; a shared zero offset shows here
+    summary, _ = analyse(capture, Settings())
+    assert summary["unused_channel"] == 4 and summary["unused_channel_mean_v"] == pytest.approx(1.23)
+
+
+def test_channel_with_blank_calibration_entry_counts_as_uncalibrated():
+    from oclab.acquisition import calibrated
+    class Scope:
+        _position_calibration = (1,)
+        def _position_pwm(self, channel, vdiv):
+            return None if channel == 2 else 0x7100  # Blank EEPROM entry for CH3 at this range
+    assert calibrated(Scope(), [1.0] * 4) is False
+    Scope._position_pwm = lambda self, channel, vdiv: 0x7100
+    assert calibrated(Scope(), [1.0] * 4) is True

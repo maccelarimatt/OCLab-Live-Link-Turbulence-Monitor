@@ -55,7 +55,9 @@ function renderSnapshot(snapshot) {
     const recent = selectedHistory().filter((p) => Number.isFinite(p.since_previous_start_s));
     const span = recent.reduce((a, p) => a + p.since_previous_start_s, 0);
     $("coverage").textContent = span > 0 ? `${fmt(recent.reduce((a, p) => a + p.burst_duration_s, 0) / span * 100, 0)}%` : "—";
-    $("quality-note").textContent = s.clipped_fraction > 0 ? `${fmt(s.clipped_fraction * 100, 1)}% clipped · check ranges` : s.low_sum_fraction > 0 ? `${fmt(s.low_sum_fraction * 100, 1)}% below SUM threshold` : "No clipping or low-SUM flags";
+    // An unconnected spare channel should read 0 V; a few ADC codes away means a scope zero offset.
+    const spareLimit = s.unused_channel && config ? 3 * config.scope.volts_per_div[s.unused_channel - 1] / 31 : Infinity;
+    $("quality-note").textContent = Math.abs(s.unused_channel_mean_v) > spareLimit ? `CH${s.unused_channel} reads ${fmt(s.unused_channel_mean_v, 2)} V: scope zero offset? (if unconnected)` : s.clipped_fraction > 0 ? `${fmt(s.clipped_fraction * 100, 1)}% clipped · check ranges` : s.low_sum_fraction > 0 ? `${fmt(s.low_sum_fraction * 100, 1)}% below SUM threshold` : "No clipping or low-SUM flags";
     $("last-update").textContent = `${healthy ? "Updated" : "Last capture"} ${utc(s.host_received_utc)} UTC · ${fmt(status.last_capture_age_s, 0)} s ago`;
     $("centroid").textContent = `X ${fmt(s.position_x)} / Y ${fmt(s.position_y)}`;
     if (s.weather_status) {

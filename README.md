@@ -185,6 +185,12 @@ Each capture summary gains weather fields computed from samples with `host_recei
 
 **Limitations.** The cup anemometer has a distance constant of about 2–3 m, so its readings are smoothed and wind statistics are **not turbulence-resolving**; they describe mean conditions near the link, not the optical turbulence along it. **Cn² is not measured** by any of these sensors. The station measures at a single point. Light is an uncalibrated relative level. Session metadata (`schema_version` 2) records the header, sensor list, association rule and these caveats.
 
+### Scope zero-level calibration
+
+When the scope is opened, the driver reads the unit's own zero-level and gain tables from its EEPROM over USB. If that read fails, the driver silently uses generic values; on this unit that shifted **every** channel by about +40 ADC codes (+1.2 V at 1 V/div), so X ≈ Y ≈ SUM and a centred beam appeared in the top-right corner. The app therefore checks that the zero-level table loaded, with a value for every channel at its configured range, and reopens the scope up to five times if not. If it still fails, nothing is recorded and the dashboard says why; it retries every `retry_interval_s`. A missing gain table is logged as a warning only.
+
+Leave the spare channel (CH4 by default) unconnected: each capture records its mean as `unused_channel_mean_v`, and the dashboard warns when it is more than 3 ADC codes from zero, which reveals a shared offset immediately.
+
 ### Supported scope settings
 
 Sample rates: 25 k, 50 k, 125 k, 250 k, 500 k, 1.25 M, 2.5 M, 5 M, 12.5 M, 25 M, 50 M, 125 M and 250 M samples/s. Depth: 4,096, 8,192 or 16,384 samples/channel. Each channel's volts/div must be one of `0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10`. The application uses auto trigger for unattended capture. Probe factors must match the physical probes; direct BNC connections use 1.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 import numpy as np
 from hantek6254bc import Capture, Hantek6254BC
@@ -7,16 +8,55 @@ from hantek6254bc import Capture, Hantek6254BC
 from .config import Settings
 from .decimation import any_in_window, decimate, plan, to_codes
 
+logger = logging.getLogger(__name__)
+CALIBRATION_ATTEMPTS = 5
+
+
+class CalibrationUnavailable(RuntimeError):
+    pass
+
+
+def calibrated(scope, volts_per_div) -> bool:
+    """True when the unit's zero-level table loaded and gives a value for every channel's range."""
+    if getattr(scope, "_position_calibration", None) is None:
+        return False
+    per_channel = getattr(scope, "_position_pwm", None)  # None per channel means the driver used its fallback
+    return per_channel is None or all(per_channel(ch, vdiv) is not None for ch, vdiv in enumerate(volts_per_div))
+
 
 class HardwareSource:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.scope = None
 
+    def open(self):
+        """Open the scope, insisting that its own zero-level calibration loaded.
+
+        The driver reads per-unit zero-level (position) and gain tables from the
+        scope's EEPROM over USB. If that read fails it silently uses generic
+        values, which on this unit shifts every channel by about +40 ADC codes
+        (+1.2 V at 1 V/div) and puts a centred beam in the top-right corner.
+        Reopen until the table loads; never record with the fallback.
+        """
+        s = self.settings.scope
+        for attempt in range(1, CALIBRATION_ATTEMPTS + 1):
+            scope = Hantek6254BC.open(s.driver_config(), bus=s.bus, address=s.address)
+            if calibrated(scope, s.volts_per_div):
+                if getattr(scope, "_scale_calibration", None) is None:
+                    logger.warning("Scope gain calibration table did not load; voltages use nominal gain")
+                if attempt > 1:
+                    logger.info("Scope zero-level calibration loaded on attempt %d", attempt)
+                return scope
+            logger.warning("Scope zero-level calibration did not load (attempt %d of %d); reopening",
+                           attempt, CALIBRATION_ATTEMPTS)
+            scope.close()
+            time.sleep(0.5)
+        raise CalibrationUnavailable("The oscilloscope's zero-level calibration could not be read, "
+                                     "so readings would carry a false offset")
+
     def capture(self) -> Capture:
         if self.scope is None:
-            s = self.settings.scope
-            self.scope = Hantek6254BC.open(s.driver_config(), bus=s.bus, address=s.address)
+            self.scope = self.open()
         return self.scope.capture()
 
     def close(self):
@@ -110,6 +150,7 @@ def analyse(capture: Capture, settings: Settings) -> tuple[dict, dict]:
         raise ValueError("Driver returned an invalid waveform")
     v = capture.volts * np.asarray(s.probe_factors)[:, None]
     indices = np.array([s.x_channel, s.y_channel, s.sum_channel]) - 1
+    unused = ({0, 1, 2, 3} - set(indices.tolist())).pop()
     x, y, total = v[indices]
     corrected_sum = total - c.sum_offset_v
     # These are the upstream driver's wire-code rails (nominal codes 0/255).
@@ -128,6 +169,9 @@ def analyse(capture: Capture, settings: Settings) -> tuple[dict, dict]:
         "position_x": mean(px), "position_y": mean(py), "position_unit": unit,
         "wander_rms": float(np.sqrt(np.var(px[valid]) + np.var(py[valid]))) if valid.any() else None,
         "valid_fraction": float(valid.mean()), "clipped_fraction": float(clipped.mean()),
+        # The channel not mapped to X/Y/SUM; when left unconnected it should read 0 V, so a
+        # non-zero mean reveals a scope zero-level offset shared by every channel.
+        "unused_channel": unused + 1, "unused_channel_mean_v": float(v[unused].mean()),
         "low_sum_fraction": float((corrected_sum < c.minimum_sum_v).mean()),
     }
     # Only the browser preview is reduced. The archive retains every sample.

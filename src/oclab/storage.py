@@ -29,6 +29,7 @@ SUMMARY_COLUMNS = [
     "weather_age_s", "weather_status", "rh_source",
     # Schema 3: archived series decimated to the operating frequency.
     "store_rate_hz", "stored_samples", "bandwidth_hz", "scintillation_index", "stored_valid_fraction",
+    "unused_channel", "unused_channel_mean_v",
 ]
 MINUTE_COLUMNS = [
     "minute_start_utc", "captures", "covered_s", "coverage_fraction",

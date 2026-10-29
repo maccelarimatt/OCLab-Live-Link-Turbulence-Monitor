@@ -194,3 +194,22 @@ def test_stream_capacity_released_when_client_disconnects():
             with pytest.raises(ClientDisconnect):
                 await response({"type": "http", "asgi": {"spec_version": "2.4"}}, receive, send)
     asyncio.run(scenario())
+
+
+def test_uncalibrated_scope_is_not_recorded(tmp_path):
+    from oclab.acquisition import CalibrationUnavailable
+    settings, recorder = setup(tmp_path)
+    class Source:
+        def capture(self):
+            raise CalibrationUnavailable("calibration could not be read")
+        def close(self):
+            pass
+    recorder.source = Source()
+    recorder.start()
+    try:
+        wait_for(lambda: "calibration" in recorder.snapshot()["status"]["message"])
+        assert recorder.snapshot()["status"]["state"] == "disconnected"
+        assert recorder.snapshot()["latest"] is None
+        assert recorder.store.sessions()["total"] == 0
+    finally:
+        recorder.stop()

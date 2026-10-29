@@ -7,7 +7,7 @@ import shutil
 import threading
 import time
 
-from .acquisition import DemoSource, HardwareSource, analyse, decimate_capture
+from .acquisition import CalibrationUnavailable, DemoSource, HardwareSource, analyse, decimate_capture
 from .config import Settings
 from .storage import Store, ns_to_utc
 from .weather import WeatherRecorder, unavailable
@@ -146,6 +146,13 @@ class Recorder:
                         summary, preview = analyse(capture, self.settings)
                         stored, decimated = decimate_capture(capture, self.settings)
                         summary.update(decimated)
+                    except CalibrationUnavailable:
+                        logger.error("Scope zero-level calibration unavailable; not recording. Retrying.")
+                        self.set_status("disconnected", "Oscilloscope calibration could not be read, so readings would be offset. Not recording; retrying automatically. Replug the scope if this persists.")
+                        self.close_source()
+                        self.end_session("interrupted")
+                        self.stop_event.wait(self.settings.retry_interval_s)
+                        continue
                     except Exception:
                         logger.exception("Acquisition failed; retrying")
                         self.set_status("disconnected", "Oscilloscope unavailable or capture failed. Check USB, permissions and service logs; reconnecting automatically.")
