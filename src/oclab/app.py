@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+import ipaddress
 import json
 from pathlib import Path
+import secrets
 import threading
 import time
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from pydantic import BaseModel
 from fastapi.staticfiles import StaticFiles
 
 from .config import Settings
@@ -17,6 +21,33 @@ from .storage import utc_to_ns
 
 
 NPZ_LIMIT_BYTES = 1_500_000_000  # session.npz is assembled in memory
+PROXY_HEADERS = ("x-forwarded-for", "x-forwarded-host", "x-real-ip", "forwarded")
+CONTROL_HEADER = "x-oclab-control"
+
+
+class LoggingRequest(BaseModel):
+    enabled: bool
+
+
+def control_access(request: Request, token: str) -> tuple[bool, str]:
+    """Whether this request may switch logging, and why not.
+
+    Allowed directly from this PC (loopback, no proxy headers: Caddy always adds
+    them), or anywhere with the configured control_token. Browsers cannot send the
+    custom header cross-site without a CORS preflight, which this app never grants.
+    """
+    supplied = request.headers.get("x-control-token", "")
+    if token and supplied and secrets.compare_digest(supplied.encode(), token.encode()):
+        return True, ""
+    if supplied:
+        return False, "Control token not accepted"
+    try:
+        loopback = ipaddress.ip_address(request.client.host).is_loopback
+    except (AttributeError, ValueError):
+        loopback = False
+    if loopback and not any(h in request.headers for h in PROXY_HEADERS):
+        return True, ""
+    return False, "Logging can be switched from a browser on the acquisition PC" + (", or with the control token" if token else "")
 
 
 class ManagedStream(StreamingResponse):
@@ -80,10 +111,30 @@ def create_app(settings: Settings | None = None, recorder: Recorder | None = Non
     def health():
         snapshot = recorder.snapshot()
         state = snapshot["status"]
-        # The status code reflects the scope only; weather is reported alongside.
+        # The status code reflects fresh scope data only (logging on or off); weather and
+        # the logging state are reported alongside.
         w = snapshot["weather"]
         weather = {k: w[k] for k in ("enabled", "state", "message", "stale", "age_s", "port")}
-        return JSONResponse({**state, "weather": weather}, status_code=200 if state["recording"] else 503)
+        return JSONResponse({**state, "weather": weather}, status_code=200 if state["acquiring"] else 503)
+
+    @app.get("/api/control")
+    def control(request: Request):
+        allowed, reason = control_access(request, settings.control_token)
+        return {"allowed": allowed, "reason": reason, "token_available": bool(settings.control_token),
+                "logging": recorder.snapshot()["status"]["logging"]}
+
+    @app.post("/api/logging")
+    def set_logging(body: LoggingRequest, request: Request):
+        if request.headers.get(CONTROL_HEADER) != "1":
+            raise HTTPException(403, "Missing control header")
+        origin = request.headers.get("origin")
+        if origin and urlsplit(origin).netloc != request.headers.get("host"):
+            raise HTTPException(403, "Cross-site control request refused")
+        allowed, reason = control_access(request, settings.control_token)
+        if not allowed:
+            raise HTTPException(403, reason)
+        recorder.set_logging(body.enabled)
+        return recorder.snapshot()["status"]
 
     @app.get("/api/history")
     def history(limit: int = Query(600, ge=1, le=7200)):
@@ -104,12 +155,12 @@ def create_app(settings: Settings | None = None, recorder: Recorder | None = Non
             raise HTTPException(503, "Live connection limit reached")
         await streams.acquire()
         async def stream():
-            last_id = 0
+            last_seq = 0
             while not await request.is_disconnected():
                 snapshot = recorder.snapshot()
-                snapshot["captures"] = recorder.captures_since(last_id)
+                snapshot["captures"] = recorder.captures_since(last_seq)
                 if snapshot["captures"]:
-                    last_id = snapshot["captures"][-1]["capture_id"]
+                    last_seq = snapshot["captures"][-1]["seq"]
                 yield "event: snapshot\ndata: " + json.dumps(snapshot, allow_nan=False) + "\n\n"
                 await asyncio.sleep(1)
         return ManagedStream(stream(), release=streams.release, media_type="text/event-stream",

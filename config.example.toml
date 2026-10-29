@@ -7,6 +7,10 @@ capture_interval_s = 0                 # Minimum time between capture starts; 0 
 session_duration_s = 3600              # Automatically rotate recording sessions
 minimum_free_disk_mb = 1024            # Pause recording below this; never delete data
 retry_interval_s = 5
+record_on_start = false                # true: save data from start-up; false: live view until logging is switched on
+# Secret (16+ characters) that unlocks the dashboard's logging toggle when viewed through the HTTPS proxy.
+# Leave empty to allow the toggle only from a browser on this PC. Never commit a real token.
+# control_token = ""
 
 [scope]
 sample_rate = 25000                    # Scope samples/s WITHIN each burst, per channel (minimum 25000)

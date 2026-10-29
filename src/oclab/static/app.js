@@ -7,31 +7,37 @@ const colours = ["#4778aa", "#b68042", "#2d8068"];
 let config, latest, history = [], plotMode = "history", windowSeconds = 300, archiveOffset = 0;
 let lastEventAt = 0, connection, signalPoints = [], signalBounds, archiveBusy = false;
 let weather, windHistory = [];
+let control = {allowed: false}, loggingState = false, toggleBusy = false;
+const tokenKey = "oclab-control-token";
 const ago = (s) => Number.isFinite(s) ? `${fmt(s, s < 10 ? 1 : 0)} s ago` : "no data";
 
-async function fetchJSON(url) {
-  const response = await fetch(url, {signal: AbortSignal.timeout(15000)});
+async function fetchJSON(url, headers = {}) {
+  const response = await fetch(url, {headers, signal: AbortSignal.timeout(15000)});
   if (!response.ok) throw new Error(`Request failed (${response.status})`);
   return response.json();
 }
 
 function addHistory(items) {
-  const byId = new Map(history.map((s) => [s.capture_id, s]));
-  for (const item of items) byId.set(item.capture_id, item);
-  history = [...byId.values()].sort((a, b) => a.capture_id - b.capture_id).slice(-7200);
+  // Keyed by receive time: live captures shown while logging is off have no capture_id.
+  const byTime = new Map(history.map((s) => [s.host_received_ns, s]));
+  for (const item of items) byTime.set(item.host_received_ns, item);
+  history = [...byTime.values()].sort((a, b) => a.host_received_ns - b.host_received_ns).slice(-7200);
 }
 
 function renderSnapshot(snapshot) {
   const status = snapshot.status;
   lastEventAt = Date.now();
-  const healthy = status.recording;
+  const healthy = status.acquiring, saving = healthy && status.logging;
+  loggingState = status.logging;
+  updateToggle();
   document.body.classList.toggle("stale", !healthy);
-  $("status-dot").className = `dot ${healthy ? "live" : "error"}`;
+  $("status-dot").className = `dot ${saving ? "live" : healthy ? "idle" : "error"}`;
   $("status-dot").closest(".status-strip").classList.toggle("error", !healthy);
-  $("connection-label").textContent = healthy ? (status.mode === "demo" ? "Demo running" : "Link recording") : status.state === "starting" ? "Connecting" : "Recording paused";
+  $("status-dot").closest(".status-strip").classList.toggle("idle", healthy && !saving);
+  $("connection-label").textContent = saving ? (status.mode === "demo" ? "Demo running" : "Link recording") : healthy ? "Live · not logging" : status.state === "starting" ? "Connecting" : "Recording paused";
   $("status-message").textContent = status.message;
   $("mode-banner").hidden = status.mode !== "demo";
-  $("record-state").textContent = healthy ? "Saving to disk" : "Recording paused";
+  $("record-state").textContent = saving ? "Saving to disk" : healthy ? "Not saving (live view only)" : "Recording paused";
   if (snapshot.latest) {
     latest = snapshot.latest;
     addHistory(snapshot.captures || [latest.summary]);
@@ -239,6 +245,50 @@ function drawWind() {
 
 function drawCharts() { drawSignal(); drawWander(); drawWind(); }
 
+function storedToken() { try { return sessionStorage.getItem(tokenKey) || ""; } catch (error) { return ""; } }
+function saveToken(token) { try { if (token) sessionStorage.setItem(tokenKey, token); else sessionStorage.removeItem(tokenKey); } catch (error) { /* private mode */ } }
+
+async function loadControl() {
+  try {
+    control = await fetchJSON("/api/control", storedToken() ? {"X-Control-Token": storedToken()} : {});
+    if (!control.allowed && storedToken()) saveToken("");
+  } catch (error) { control = {allowed: false, reason: "Logging control unavailable"}; }
+  updateToggle();
+}
+
+function updateToggle() {
+  const button = $("logging-toggle");
+  button.setAttribute("aria-checked", String(Boolean(loggingState)));
+  $("logging-label").textContent = loggingState ? "Logging on" : "Logging off";
+  button.disabled = toggleBusy || !(control.allowed || control.token_available);
+  button.title = control.allowed ? (loggingState ? "Stop saving data (closes the current session)" : "Start saving data to disk")
+    : control.token_available ? "Enter the control token to switch logging" : (control.reason || "");
+}
+
+async function toggleLogging() {
+  if (!control.allowed) {
+    const token = window.prompt("Control token for this station:");
+    if (!token) return;
+    saveToken(token);
+    await loadControl();
+    if (!control.allowed) { window.alert(control.reason || "Token not accepted"); return; }
+  }
+  const enable = !loggingState;
+  if (!enable && !window.confirm("Stop saving data? The current session will be closed; the live view continues.")) return;
+  toggleBusy = true; updateToggle();
+  try {
+    const headers = {"Content-Type": "application/json", "X-OCLab-Control": "1"};
+    if (storedToken()) headers["X-Control-Token"] = storedToken();
+    const response = await fetch("/api/logging", {method: "POST", headers, body: JSON.stringify({enabled: enable}), signal: AbortSignal.timeout(15000)});
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `request failed (${response.status})`);
+    loggingState = body.logging;
+    setTimeout(loadArchive, 2000);
+  } catch (error) {
+    $("status-message").textContent = `Could not switch logging: ${error.message}`;
+  } finally { toggleBusy = false; updateToggle(); }
+}
+
 function cell(row, content, className) {
   const td = document.createElement("td");
   if (className) td.className = className;
@@ -292,6 +342,7 @@ $("trend-tab").onclick = () => setPlot("history");
 $("waveform-tab").onclick = () => setPlot("waveform");
 $("time-window").onchange = (event) => { windowSeconds = Number(event.target.value); drawCharts(); };
 $("refresh-archive").onclick = loadArchive;
+$("logging-toggle").onclick = toggleLogging;
 $("previous-page").onclick = () => { if (!archiveBusy) { archiveOffset = Math.max(0, archiveOffset - 8); loadArchive(); } };
 $("next-page").onclick = () => { if (!archiveBusy) { archiveOffset += 8; loadArchive(); } };
 $("signal-chart").addEventListener("pointermove", (event) => {
@@ -347,6 +398,6 @@ async function init() {
     windHistory = recent.wind.map((p) => ({t: p.t_ns / 1e9, mean: p.mean_ms, max: p.max_ms}));
     drawWind();
   } catch (error) { console.error(error); }
-  connect(); loadArchive();
+  connect(); loadArchive(); loadControl();
 }
 init();

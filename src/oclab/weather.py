@@ -262,6 +262,7 @@ class WeatherRecorder:
         self.recent = {"W": deque(), "E": deque()}
         self.pending = {"W": [], "E": [], "header": []}
         self.committed_through_ns = None
+        self.logging = True  # Set by the Recorder; when False samples are shown live but not saved
         # An open port with no lines for this long is closed and reopened.
         self.silence_limit_s = max(2 * settings.weather.stale_after_s, 5)
         self.counters = dict(lines=0, wind=0, env=0, headers=0, comments=0, malformed=0,
@@ -286,6 +287,20 @@ class WeatherRecorder:
     def set_status(self, state, message):
         with self.mutex:
             self.state, self.message = state, message
+
+    def set_logging(self, enabled: bool):
+        """Start or stop saving. Starting also saves the buffered recent samples not yet on disk,
+        so the first capture's association window is complete in the archive."""
+        with self.mutex:
+            if enabled and not self.logging:
+                after = self.committed_through_ns or 0
+                for kind in ("W", "E"):
+                    self.pending[kind] = [x for x in self.recent[kind] if x["host_received_ns"] > after]
+                if self.header is not None:
+                    self.pending["header"] = [{"host_received_ns": time.time_ns(), "header": self.header, "raw": "# (repeated when logging started)"}]
+            elif not enabled:
+                self.pending = {"W": [], "E": [], "header": []}
+            self.logging = enabled
 
     def run(self):
         last_flush = time.monotonic()
@@ -351,7 +366,8 @@ class WeatherRecorder:
             if kind == "header":
                 self.counters["headers"] += 1
                 self.header = fields
-                self.pending["header"].append({"host_received_ns": received_ns, "header": fields, "raw": raw})
+                if self.logging:
+                    self.pending["header"].append({"host_received_ns": received_ns, "header": fields, "raw": raw})
                 return
             sample = {"host_received_ns": received_ns, **fields, "raw": raw}
             self.counters["wind" if kind == "W" else "env"] += 1
@@ -360,7 +376,8 @@ class WeatherRecorder:
             recent.append(sample)
             while recent and recent[0]["host_received_ns"] < received_ns - self.keep_ns:
                 recent.popleft()
-            self.pending[kind].append(sample)
+            if self.logging:
+                self.pending[kind].append(sample)
             if self.state != "storage_error":
                 self.state, self.message = "receiving", "Weather station data received"
 
@@ -420,7 +437,7 @@ class WeatherRecorder:
                 "wind": strip(self.latest["W"]), "env": strip(self.latest["E"]),
                 "wind_last_1s": {"mean_ms": sum(last_second) / len(last_second), "max_ms": max(last_second),
                                  "n": len(last_second), "t_ns": cutoff + 1_000_000_000} if last_second else None,
-                "counters": dict(self.counters), "stale_after_s": stale_after,
+                "counters": dict(self.counters), "stale_after_s": stale_after, "logging": self.logging,
             }
 
     def metadata(self) -> dict:

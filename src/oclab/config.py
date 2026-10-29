@@ -73,6 +73,8 @@ class Settings:
     session_duration_s: float = 3600
     minimum_free_disk_mb: float = 1024
     retry_interval_s: float = 5
+    record_on_start: bool = True   # False: show live data but save nothing until logging is switched on
+    control_token: str = ""        # Secret that unlocks the logging toggle through a proxy; never published
     scope: ScopeSettings = field(default_factory=ScopeSettings)
     calibration: Calibration = field(default_factory=Calibration)
     experiment: Experiment = field(default_factory=Experiment)
@@ -90,6 +92,10 @@ class Settings:
             raise ValueError("Settings must contain only finite numbers")
         if self.mode not in ("hardware", "demo"):
             raise ValueError("mode must be hardware or demo")
+        if type(self.record_on_start) is not bool or type(self.control_token) is not str:
+            raise ValueError("record_on_start must be true/false and control_token a string")
+        if self.control_token and len(self.control_token) < 16:
+            raise ValueError("control_token must be at least 16 characters (or empty to disable remote control)")
         self.scope.driver_config()
         channels = (self.scope.x_channel, self.scope.y_channel, self.scope.sum_channel)
         if len(set(channels)) != 3 or any(type(c) is not int or c not in range(1, 5) for c in channels):
@@ -120,7 +126,7 @@ class Settings:
 
     def public(self) -> dict:
         data = asdict(self)
-        for key in ("data_dir", "host", "port"):
+        for key in ("data_dir", "host", "port", "control_token"):
             data.pop(key)
         return data
 

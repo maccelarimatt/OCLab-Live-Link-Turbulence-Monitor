@@ -22,6 +22,10 @@ class Recorder:
         self.source = source or (DemoSource(settings) if settings.mode == "demo" else HardwareSource(settings))
         # Separate thread and state; shares only the store and the process lock.
         self.weather = WeatherRecorder(settings, self.store, weather_source)
+        # Whether captures (and weather) are saved; otherwise they are only shown live.
+        self.logging = settings.record_on_start
+        self.weather.logging = self.logging
+        self.seq = 0  # Increments for every published capture, saved or not (live-stream replay)
         self.stop_event = threading.Event()
         self.mutex = threading.Lock()
         self.latest = None
@@ -69,20 +73,37 @@ class Recorder:
         with self.mutex:
             self.state, self.message = state, message
 
+    def set_logging(self, enabled: bool):
+        """Switch saving on or off. The capture loop opens/closes the session on its next burst."""
+        with self.mutex:
+            self.logging = enabled
+            if self.state in ("recording", "monitoring"):
+                self.state = "recording" if enabled else "monitoring"
+                self.message = self.status_message(enabled)
+        self.weather.set_logging(enabled)
+        logger.info("Data logging %s", "started" if enabled else "stopped")
+
+    def status_message(self, logging):
+        if not logging:
+            return "Live view only: data logging is off"
+        return "Synthetic data is being recorded" if self.settings.mode == "demo" else "Acquiring and saving to disk"
+
     def snapshot(self):
         with self.mutex:
             age = time.monotonic() - self.last_success if self.last_success is not None else None
             stale = age is None or age > max(5, self.settings.capture_interval_s * 3)
+            acquiring = self.state in ("recording", "monitoring") and not stale
             return {"status": {
                 "state": self.state, "message": self.message, "mode": self.settings.mode,
                 "stale": stale, "last_capture_age_s": age, "session_id": self.session_id,
+                "acquiring": acquiring, "logging": self.logging,
                 "recording": self.state == "recording" and not stale,
                 "free_disk_mb": self.free_disk_mb,
             }, "latest": self.latest, "weather": self.weather.snapshot()}
 
-    def captures_since(self, capture_id):
+    def captures_since(self, seq):
         with self.mutex:
-            return [s for s in self.recent if s["capture_id"] > capture_id]
+            return [s for s in self.recent if s["seq"] > seq]
 
     def close_source(self):
         try:
@@ -104,10 +125,14 @@ class Recorder:
             while not self.stop_event.is_set():
                 start = time.monotonic()
                 try:
+                    with self.mutex:
+                        logging = self.logging
+                    if not logging:
+                        self.end_session()  # Logging switched off: close the session cleanly
                     free = shutil.disk_usage(self.store.root).free / 1024**2
                     with self.mutex:
                         self.free_disk_mb = free
-                    if free < self.settings.minimum_free_disk_mb:
+                    if logging and free < self.settings.minimum_free_disk_mb:
                         self.set_status("storage_error", "Recording paused: disk space is below the configured reserve")
                         self.close_source()
                         self.end_session("interrupted")
@@ -138,18 +163,24 @@ class Recorder:
                         # Weather problems must never stop scope recording.
                         logger.exception("Weather association failed")
                         summary.update(unavailable("missing"))
-                    if self.session_id is None or start - session_started >= self.settings.session_duration_s:
-                        self.end_session()
-                        self.session_id = self.store.start_session(self.settings, self.weather.metadata())
-                        session_started = start
-                    saved = self.store.save(self.session_id, stored, summary)
+                    if logging:
+                        if self.session_id is None or start - session_started >= self.settings.session_duration_s:
+                            self.end_session()
+                            self.session_id = self.store.start_session(self.settings, self.weather.metadata())
+                            session_started = start
+                        saved = self.store.save(self.session_id, stored, summary)
+                    else:
+                        saved = {**summary, "session_id": None, "capture_id": None}  # Shown live, never saved
                     previous_start = start
                     with self.mutex:
+                        self.seq += 1
+                        saved["seq"] = self.seq
                         self.latest = {"summary": saved, "preview": preview}
                         self.recent.append(saved)
                         self.last_success = time.monotonic()
-                        self.state = "recording"
-                        self.message = "Synthetic data is being recorded" if self.settings.mode == "demo" else "Acquiring and saving to disk"
+                        # The toggle may have changed during this burst; report what was actually done.
+                        self.state = "recording" if logging else "monitoring"
+                        self.message = self.status_message(logging)
                 except Exception:
                     logger.exception("Persistence failed; capture not published")
                     self.set_status("storage_error", "Recording paused: unable to save data. Check disk and service logs.")

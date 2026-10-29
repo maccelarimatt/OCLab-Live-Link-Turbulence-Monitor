@@ -236,14 +236,26 @@ Use a separate disk for backups where possible. To move the archive, stop the re
 
 ## API
 
-Interactive schema: `/docs`. All application endpoints are read-only; there are no public capture controls, deletion endpoints or settings mutations.
+Interactive schema: `/docs`. Apart from the logging switch below, all endpoints are read-only; there are no deletion endpoints or settings changes.
+
+### Logging switch
+
+The dashboard's **Logging** switch (in the status strip) starts and stops saving data. With logging off the scope and weather station keep running and the dashboard shows live data, but nothing is written to disk; this is useful while aligning the laser. Switching on starts a new session, and also saves the weather samples buffered in the previous association window, so the first capture's weather window is complete in the archive. Switching off closes the session as complete; stopping asks for confirmation. `record_on_start` sets the state at start-up (`false` in the example configuration); the switch is not remembered across restarts.
+
+Who may switch logging:
+
+- A browser **on the acquisition PC** connecting directly (loopback, no proxy headers) needs nothing else.
+- Through the HTTPS proxy, the switch is locked unless `control_token` (16+ characters) is set in the configuration; the dashboard then asks for the token once per browser tab. Without a token, remote visitors only see the switch's state. The token is never included in `/api/config` or session metadata.
+- Every change must carry the `X-OCLab-Control: 1` header and, when present, a same-site `Origin`, so other websites cannot switch logging from a visitor's browser.
 
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /api/config` | Public experiment and acquisition configuration; excludes host and disk path. |
-| `GET /api/live` | Latest committed capture preview, recorder state and a `weather` block. |
+| `GET /api/live` | Latest capture preview (saved, or live-only with `capture_id: null` while logging is off), recorder state including `logging`, and a `weather` block. |
 | `GET /api/events` | Server-sent `snapshot` events every second, with recent capture summaries and weather status; bounded to 100 connections/process. |
-| `GET /api/health` | HTTP 200 while recording fresh scope data, 503 while starting/disconnected/stale or unable to save. Demo is explicitly identified. A separate `weather` block reports the station; it does not affect the status code. |
+| `GET /api/health` | HTTP 200 while the scope delivers fresh data (whether or not logging is on; see `logging`), 503 while starting/disconnected/stale or unable to save. Demo is explicitly identified. A separate `weather` block reports the station; it does not affect the status code. |
+| `GET /api/control` | Whether this browser may use the logging switch, and the current logging state. |
+| `POST /api/logging` | `{"enabled": true|false}` starts or stops saving. Requires `X-OCLab-Control: 1` and either a direct connection on the acquisition PC or `X-Control-Token`. |
 | `GET /api/weather/live` | Latest W and E values, port, state, staleness, ages, last-second wind mean/max and line/error counters. |
 | `GET /api/weather/history?seconds=300` | Wind in 1 s bins (mean, max, count) and every environment sample; 1–3,600 s. |
 | `GET /api/history?limit=600` | Latest summaries, oldest first; limit 1–7,200. |
