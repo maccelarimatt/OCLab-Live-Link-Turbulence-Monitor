@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+import hashlib
 import ipaddress
 import json
 import logging
@@ -12,7 +13,7 @@ import time
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from fastapi.staticfiles import StaticFiles
 
@@ -98,11 +99,30 @@ def create_app(settings: Settings | None = None, recorder: Recorder | None = Non
             response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'"
         if request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
+        elif request.url.path == "/" or request.url.path.startswith("/static/"):
+            # Browsers must revalidate (a cheap 304 when unchanged) instead of silently reusing an
+            # old page, style sheet or script after an update.
+            response.headers["Cache-Control"] = "no-cache"
         return response
+
+    fingerprints = {}  # path -> (mtime_ns, size, short content hash)
+
+    def fingerprint(name):
+        path = static / name
+        stat = path.stat()
+        cached = fingerprints.get(name)
+        if not cached or cached[:2] != (stat.st_mtime_ns, stat.st_size):
+            cached = (stat.st_mtime_ns, stat.st_size, hashlib.sha256(path.read_bytes()).hexdigest()[:12])
+            fingerprints[name] = cached
+        return cached[2]
 
     @app.get("/", include_in_schema=False)
     def index():
-        return FileResponse(static / "index.html")
+        # Versioned asset URLs: a changed style sheet or script always gets a new address.
+        html = (static / "index.html").read_text()
+        for name in ("style.css", "app.js", "favicon.svg"):
+            html = html.replace(f'"/static/{name}"', f'"/static/{name}?v={fingerprint(name)}"')
+        return HTMLResponse(html)
 
     @app.get("/api/config")
     def configuration():

@@ -213,3 +213,16 @@ def test_uncalibrated_scope_is_not_recorded(tmp_path):
         assert recorder.store.sessions()["total"] == 0
     finally:
         recorder.stop()
+
+
+def test_page_assets_are_versioned_and_revalidated(tmp_path):
+    import re
+    settings, recorder = setup(tmp_path)
+    client = TestClient(create_app(settings, recorder))
+    page = client.get("/")
+    assert page.headers["cache-control"] == "no-cache" and "Content-Security-Policy" in page.headers
+    versions = dict(re.findall(r'"/static/(style\.css|app\.js)\?v=([0-9a-f]{12})"', page.text))
+    assert set(versions) == {"style.css", "app.js"}
+    css = client.get(f"/static/style.css?v={versions['style.css']}")
+    assert css.status_code == 200 and css.headers["cache-control"] == "no-cache"
+    assert client.get("/static/app.js", headers={"If-None-Match": client.get("/static/app.js").headers["etag"]}).status_code == 304
