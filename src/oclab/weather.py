@@ -27,7 +27,7 @@ ASSOCIATION_FIELDS = (
 )
 SENSORS = [
     {"quantity": "wind speed", "sensor": "cup anemometer, 4-20 mA loop into the Pico ADC via a shunt",
-     "unit": "m/s", "rate": "10 Hz", "notes": "Slow response (distance constant about 2-3 m); not turbulence-resolving. clip=1 marks ADC saturation."},
+     "unit": "m/s", "rate": "10 Hz", "notes": "Slow response (distance constant about 2-3 m); not turbulence-resolving. clip=1 marks ADC saturation. wind = (i_ma - zero) / 16 mA x range, with the rest current in the header (zero=, firmware v3.2+; earlier firmware assumed 4.00 mA and read about 0.5 m/s low). Empty wind with i_ma below about 3.2 mA means the loop was open or unpowered. A level that stays flat well above zero is a frozen sensor, not wind."},
     {"quantity": "air temperature", "sensor": "BMP280 or BME280 (header baro=)", "unit": "degC", "rate": "1 Hz", "notes": "Reference air-temperature sensor (air_temp_c). Mount in the sun shield."},
     {"quantity": "station pressure", "sensor": "BMP280 or BME280 (header baro=)", "unit": "hPa", "rate": "1 Hz", "notes": "Not reduced to sea level."},
     {"quantity": "relative humidity (baro_rh)", "sensor": "BME280 (firmware v3.1+; empty with a BMP280)", "unit": "%RH", "rate": "1 Hz",
@@ -89,6 +89,8 @@ def parse_line(line: str):
     if not line:
         raise ParseError("Empty line")
     if line.startswith("#"):
+        if line.startswith("# warning"):
+            return "comment", line  # May contain key=value text; never the station header
         header = parse_header(line)
         return ("header", header) if header else ("comment", line)
     parts = line.split(",")
@@ -262,6 +264,7 @@ class WeatherRecorder:
         self.recent = {"W": deque(), "E": deque()}
         self.pending = {"W": [], "E": [], "header": []}
         self.committed_through_ns = None
+        self.warning = None  # (text, monotonic time) of the firmware's latest "# warning ..." line
         self.logging = True  # Set by the Recorder; when False samples are shown live but not saved
         # An open port with no lines for this long is closed and reopened.
         self.silence_limit_s = max(2 * settings.weather.stale_after_s, 5)
@@ -362,6 +365,9 @@ class WeatherRecorder:
             self.counters["lines"] += 1
             if kind == "comment":
                 self.counters["comments"] += 1
+                if fields.startswith("# warning"):
+                    self.warning = (fields[len("# warning"):].strip(), now)
+                    logger.warning("Weather station: %s", self.warning[0])
                 return
             if kind == "header":
                 self.counters["headers"] += 1
@@ -438,6 +444,8 @@ class WeatherRecorder:
                 "wind_last_1s": {"mean_ms": sum(last_second) / len(last_second), "max_ms": max(last_second),
                                  "n": len(last_second), "t_ns": cutoff + 1_000_000_000} if last_second else None,
                 "counters": dict(self.counters), "stale_after_s": stale_after, "logging": self.logging,
+                # Firmware repeats a standing warning every 60 s; drop it once it stops.
+                "warning": self.warning[0] if self.warning and now - self.warning[1] < 150 else None,
             }
 
     def metadata(self) -> dict:

@@ -80,8 +80,14 @@ function renderWeather(w) {
   $("weather").classList.toggle("stale", !live);
   $("weather-tag").textContent = !w.enabled ? "DISABLED" : w.source === "demo" ? "SYNTHETIC · DEMO" : w.port ? `PICO W · ${w.port.split("/").pop()}` : "PICO W · NOT FOUND";
   $("weather-tag").classList.toggle("warn", w.enabled && !live);
+  // An empty wind value with almost no loop current means the anemometer is unplugged or unpowered.
+  const noSignal = w.wind && wind.wind_ms === null && Number.isFinite(wind.i_ma);
   $("wx-wind").textContent = fmt(last ? last.mean_ms : wind.wind_ms, 1);
-  $("wx-wind-note").textContent = wind.clip === 1 ? "ADC clipped · wind above range" : last ? `1 s mean · max ${fmt(last.max_ms, 1)} · ${last.n} samples` : "Latest sample";
+  $("wx-wind-note").textContent = noSignal ? `No signal (${fmt(wind.i_ma, 2)} mA) · check the anemometer plug and its 5 V`
+    : w.warning ? "Signal frozen · sensor not measuring · re-plug it"
+    : wind.clip === 1 ? "ADC clipped · wind above range" : last ? `1 s mean · max ${fmt(last.max_ms, 1)} · ${last.n} samples` : "Latest sample";
+  $("wx-wind-note").classList.toggle("fault", Boolean(noSignal || w.warning));
+  $("wind-empty").textContent = noSignal ? "No anemometer signal" : "Waiting for wind samples";
   $("wx-air").textContent = fmt(env.baro_c, 1);
   // DHT11 humidity when it has one; otherwise BME280 (the DHT11 cannot read below about 20 %RH).
   const dhtRh = Number.isFinite(env.dht_rh), baroRh = Number.isFinite(env.baro_rh);
@@ -91,7 +97,7 @@ function renderWeather(w) {
   $("wx-light").textContent = fmt(env.light_v, 2);
   $("wx-light-note").textContent = w.header?.light === "bpw34" ? `BPW34 · ${fmt(env.light_x, 1)} µA` : `LDR · ${Number.isFinite(env.light_x) ? fmt(env.light_x / 1000, 1) + " kΩ" : "—"}`;
   const skipped = w.counters?.malformed ? ` · ${count(w.counters.malformed)} malformed lines skipped` : "";
-  $("weather-status").textContent = w.enabled ? `${w.message} · wind ${ago(w.wind_age_s)} · environment ${ago(w.env_age_s)}${skipped}` : w.message;
+  $("weather-status").textContent = w.enabled ? `${w.message} · wind ${ago(w.wind_age_s)} · environment ${ago(w.env_age_s)}${skipped}${w.warning ? ` · WARNING: ${w.warning}` : ""}` : w.message;
   if (last && (!windHistory.length || last.t_ns / 1e9 > windHistory[windHistory.length - 1].t + 0.5)) {
     windHistory.push({t: last.t_ns / 1e9, mean: last.mean_ms, max: last.max_ms});
     if (windHistory.length > 3600) windHistory = windHistory.slice(-3600);
@@ -220,7 +226,7 @@ function drawWind() {
   const xMax = windHistory.length ? windHistory[windHistory.length - 1].t : Date.now() / 1000, xMin = xMax - windowSeconds;
   const points = windHistory.filter((p) => p.t >= xMin);
   $("wind-empty").hidden = points.length > 0;
-  let high = 5;
+  let high = 2;  // Light winds stay readable; grows with the data
   for (const p of points) high = Math.max(high, p.max * 1.15);
   const X = (t) => margin.l + (t - xMin) / (xMax - xMin) * width;
   const Y = (v) => margin.t + (high - v) / high * height;

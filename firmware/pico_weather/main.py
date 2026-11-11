@@ -3,14 +3,15 @@
 # MicroPython on a Raspberry Pi Pico W. Save on the Pico as main.py so it
 # starts at power-up. Prints newline-terminated ASCII on USB serial:
 #
-#   # pico-weather v3.1 wind=10Hz anemo=4-20mA shunt=165.0ohm range=30.0m/s light=ldr baro=BME280 dht=yes ...
+#   # pico-weather v3.2 wind=10Hz anemo=4-20mA shunt=165.0ohm range=30.0m/s zero=3.72mA light=ldr baro=BME280 dht=yes ...
 #   W,t_ms,v_adc,i_ma,wind_ms,clip                          10 Hz
 #   E,t_ms,dht_c,dht_rh,baro_hpa,baro_c,light_v,light_x,baro_rh   1 Hz
 #
 # baro_rh (v3.1+) is BME280 relative humidity; empty with a BMP280.
 # An empty field means the sensor is missing or the read failed (never 0).
 # The header is repeated every HEADER_EVERY_S so a host that connects late
-# still receives it. Other "#" lines are informational.
+# still receives it. Other "#" lines are informational; "# warning ..." lines
+# report a wind signal frozen at a fixed level (the sensor is not measuring).
 #
 # Wiring (see the FSO observatory schematic):
 #   GP26 / ADC0  WIND   4-20 mA loop across 2 x 330 ohm in parallel (165 ohm)
@@ -23,8 +24,14 @@ import struct
 import machine
 from machine import ADC, I2C, Pin
 
-VERSION = "v3.1"
-ANEMO_RANGE = 30.0      # m/s at 20 mA
+VERSION = "v3.2"
+ANEMO_RANGE = 30.0      # m/s over the 16 mA span
+# Loop current this circuit reads with the cups at rest. Measured 3.72 mA (0.614 V)
+# on 22 Oct, 29 Oct and 10 Nov 2026, not the nominal 4.00 mA; with 4.00 the first
+# 0.5 m/s read as zero. To re-measure: hold the cups still for a minute and take the
+# mean i_ma of the W lines. Nothing is zeroed automatically at start-up.
+ANEMO_ZERO_MA = 3.72
+ANEMO_SPAN_MA = 16.0
 SHUNT_OHM = 165.0       # 2 x 330 ohm in parallel
 LIGHT_MODE = "ldr"      # "ldr" or "bpw34"
 R_LIGHT = 1000.0        # ohm, divider/load resistor on LIGHT
@@ -36,7 +43,10 @@ SCL_DHT_PINS = (21, 17)  # schematic: SCL=GP21, DHT=GP17
 BARO_ADDR = 0x76
 ADC_SAMPLES = 16        # averaged per reading
 CLIP_RAW = 65200        # raw u16 at or above this is treated as the ADC rail
-LOOP_FAULT_MA = 3.6     # below this the 4-20 mA loop is open/faulty: wind empty
+LOOP_FAULT_MA = 3.2     # below this the loop is open or unpowered: wind empty
+FROZEN_WINDOW = 600     # W samples (60 s) per frozen-signal check
+FROZEN_SD_V = 0.006     # ADC noise alone is about 0.003 V
+FROZEN_ABOVE_MA = 1.0   # only when this far above zero: a still anemometer is flat too
 WIND_PERIOD_MS = 100
 ENV_EVERY = 10          # E line every 10th W line (1 Hz)
 HEADER_EVERY_S = 60
@@ -156,10 +166,51 @@ def read_dht11(pin):
     return data[2], data[0]
 
 
+def wind_from_volts(v):
+    """(loop current mA, wind m/s or None) from the shunt voltage."""
+    i_ma = v / SHUNT_OHM * 1000
+    if i_ma < LOOP_FAULT_MA:
+        return i_ma, None
+    return i_ma, max(0.0, (i_ma - ANEMO_ZERO_MA) / ANEMO_SPAN_MA * ANEMO_RANGE)
+
+
+class FrozenCheck:
+    """Flags a wind signal that sits at one level well above zero for a whole window.
+
+    Real wind always fluctuates. After some power-ups this sensor has held a fixed
+    current (9.2 and 13.3 mA seen, flat to 3 mV), which would be logged as steady wind.
+    """
+
+    def __init__(self):
+        self.reset(0.0)
+
+    def reset(self, origin):
+        self.n, self.total, self.squares, self.origin = 0, 0.0, 0.0, origin
+
+    def add(self, v):
+        """Add one sample; returns a warning string at the end of a frozen window, else None."""
+        if self.n == 0:
+            self.origin = v  # Sum deviations from the first sample: small numbers for 32-bit floats
+        d = v - self.origin
+        self.n += 1
+        self.total += d
+        self.squares += d * d
+        if self.n < FROZEN_WINDOW:
+            return None
+        mean = self.total / self.n
+        sd = max(0.0, self.squares / self.n - mean * mean) ** 0.5
+        i_ma = (self.origin + mean) / SHUNT_OHM * 1000
+        self.reset(0.0)
+        if sd < FROZEN_SD_V and i_ma > ANEMO_ZERO_MA + FROZEN_ABOVE_MA:
+            return "# warning wind_frozen level=%.2fmA sd=%.4fV over %ds: sensor not measuring, re-plug or power-cycle it" % (
+                i_ma, sd, FROZEN_WINDOW * WIND_PERIOD_MS // 1000)
+        return None
+
+
 def header(baro, scl, dht_pin):
-    return ("# pico-weather %s wind=%dHz anemo=4-20mA shunt=%.1fohm range=%.1fm/s light=%s r_light=%.0fohm "
+    return ("# pico-weather %s wind=%dHz anemo=4-20mA shunt=%.1fohm range=%.1fm/s zero=%.2fmA light=%s r_light=%.0fohm "
             "baro=%s dht=%s pins=wind:GP%d,light:GP%d,sda:GP%d,scl:%s,dht:GP%d"
-            % (VERSION, 1000 // WIND_PERIOD_MS, SHUNT_OHM, ANEMO_RANGE, LIGHT_MODE, R_LIGHT,
+            % (VERSION, 1000 // WIND_PERIOD_MS, SHUNT_OHM, ANEMO_RANGE, ANEMO_ZERO_MA, LIGHT_MODE, R_LIGHT,
                baro.name if baro else "none", "yes", WIND_PIN, LIGHT_PIN, SDA_PIN,
                "GP%d" % scl if scl is not None else "none", dht_pin))
 
@@ -178,6 +229,7 @@ def main():
         print("# note: SCL found on GP%d and DHT11 on GP%d (swapped relative to the schematic)" % (scl, dht_pin))
 
     tick = 0
+    frozen = FrozenCheck()
     next_ms = time.ticks_ms()
     last_header = time.ticks_ms()
     while True:
@@ -190,9 +242,11 @@ def main():
             next_ms = time.ticks_add(now, WIND_PERIOD_MS)   # resynchronise after a stall
 
         v, clipped = read_adc(wind_adc)
-        i_ma = v / SHUNT_OHM * 1000
-        wind = None if i_ma < LOOP_FAULT_MA else max(0.0, (i_ma - 4) / 16 * ANEMO_RANGE)
+        i_ma, wind = wind_from_volts(v)
         print("W,%d,%.4f,%.3f,%s,%d" % (now, v, i_ma, fmt(wind, 3), 1 if clipped else 0))
+        warning = frozen.add(v)
+        if warning:
+            print(warning)
 
         tick += 1
         if tick % ENV_EVERY:
@@ -227,4 +281,5 @@ def main():
             print(head)
 
 
-main()
+if __name__ == "__main__":  # True when MicroPython runs main.py at power-up
+    main()
