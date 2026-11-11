@@ -193,3 +193,28 @@ def test_channel_with_blank_calibration_entry_counts_as_uncalibrated():
     assert calibrated(Scope(), [1.0] * 4) is False
     Scope._position_pwm = lambda self, channel, vdiv: 0x7100
     assert calibrated(Scope(), [1.0] * 4) is True
+
+
+def test_detector_saturation_excluded_like_clipping():
+    settings = Settings()
+    settings.calibration.saturation_v = 4.0
+    capture = waveform()
+    capture.volts[2, :1000] = 4.03  # SUM above the detector's 4 V limit (scope not clipped)
+    capture.volts[0, 2000:2100] = -4.05  # |X| above the limit
+    summary, _ = analyse(capture, settings)
+    assert summary["saturated_fraction"] == pytest.approx(1100 / 4096)
+    assert summary["clipped_fraction"] == 0
+    assert summary["valid_fraction"] == pytest.approx(1 - 1100 / 4096)
+    assert summary["position_x"] == 0.5  # Only unsaturated samples
+    from oclab.acquisition import decimate_capture
+    _, extra = decimate_capture(capture, settings)
+    assert extra["stored_valid_fraction"] < 1 - 1100 / 4096  # Filter windows touching saturation excluded too
+    settings.calibration.saturation_v = None
+    assert analyse(capture, settings)[0]["saturated_fraction"] == 0
+
+
+def test_saturation_must_exceed_minimum_sum(tmp_path):
+    path = tmp_path / "c.toml"
+    path.write_text("[calibration]\nsaturation_v = 0.01\n")
+    with pytest.raises(ValueError, match="saturation_v"):
+        load_settings(str(path))

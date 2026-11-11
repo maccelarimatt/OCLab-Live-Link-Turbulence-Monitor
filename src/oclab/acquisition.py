@@ -116,6 +116,14 @@ def positions(x, y, total, settings: Settings, valid):
     return px, py, unit
 
 
+def saturated(x, y, total, calibration):
+    """Samples where the detector itself is at its output limit (not the scope's ADC rails)."""
+    limit = calibration.saturation_v
+    if limit is None:
+        return np.zeros(x.shape, dtype=bool)
+    return (total > limit) | (np.abs(x) > limit) | (np.abs(y) > limit)
+
+
 def decimate_capture(capture: Capture, settings: Settings) -> tuple[dict, dict]:
     """Anti-alias filter and decimate a burst to store_rate_hz.
 
@@ -128,8 +136,10 @@ def decimate_capture(capture: Capture, settings: Settings) -> tuple[dict, dict]:
     indices = np.array([s.x_channel, s.y_channel, s.sum_channel]) - 1
     rails = np.any((capture.raw[indices] <= 28) | (capture.raw[indices] >= 227), axis=0)
     clipped = any_in_window(rails, p["factor"])
+    full = capture.volts[indices] * np.asarray(s.probe_factors)[indices, None]
+    detector_limit = any_in_window(saturated(*full, c), p["factor"])
     total = volts[indices[2]] * s.probe_factors[indices[2]] - c.sum_offset_v
-    valid = (total >= c.minimum_sum_v) & ~clipped
+    valid = (total >= c.minimum_sum_v) & ~clipped & ~detector_limit
     scint = None
     if valid.sum() >= 2 and total[valid].mean() > 0:
         scint = float(np.var(total[valid]) / total[valid].mean() ** 2)
@@ -155,7 +165,8 @@ def analyse(capture: Capture, settings: Settings) -> tuple[dict, dict]:
     corrected_sum = total - c.sum_offset_v
     # These are the upstream driver's wire-code rails (nominal codes 0/255).
     clipped = np.any((capture.raw[indices] <= 28) | (capture.raw[indices] >= 227), axis=0)
-    valid = (corrected_sum >= c.minimum_sum_v) & ~clipped
+    over = saturated(x, y, total, c)
+    valid = (corrected_sum >= c.minimum_sum_v) & ~clipped & ~over
     px, py, unit = positions(x, y, total, settings, valid)
 
     def mean(a):
@@ -169,6 +180,7 @@ def analyse(capture: Capture, settings: Settings) -> tuple[dict, dict]:
         "position_x": mean(px), "position_y": mean(py), "position_unit": unit,
         "wander_rms": float(np.sqrt(np.var(px[valid]) + np.var(py[valid]))) if valid.any() else None,
         "valid_fraction": float(valid.mean()), "clipped_fraction": float(clipped.mean()),
+        "saturated_fraction": float(over.mean()),
         # The channel not mapped to X/Y/SUM; when left unconnected it should read 0 V, so a
         # non-zero mean reveals a scope zero-level offset shared by every channel.
         "unused_channel": unused + 1, "unused_channel_mean_v": float(v[unused].mean()),

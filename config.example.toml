@@ -35,6 +35,8 @@ x_offset_v = 0.0
 y_offset_v = 0.0
 sum_offset_v = 0.0
 minimum_sum_v = 0.05                   # No position estimates below this threshold
+# saturation_v = 4.0                   # Detector output limit (Thorlabs PDP90A: SUM 0-4 V, X/Y +/-4 V); samples
+                                       # above it are excluded like clipping. Unset = no detector limit check.
 position_model = "difference_over_sum" # Or "voltage" for already-normalised outputs
 # Set BOTH scales after calibrating your breakout/detector at the measurement plane.
 # difference_over_sum: mm per unit ratio; voltage: mm per volt.

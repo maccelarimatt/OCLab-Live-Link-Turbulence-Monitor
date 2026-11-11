@@ -37,6 +37,7 @@ class Calibration:
     position_model: str = "difference_over_sum"
     x_scale_mm: float | None = None
     y_scale_mm: float | None = None
+    saturation_v: float | None = None  # Detector output limit: SUM above it, or |X|/|Y| above it, is saturated
     notes: str = "Position uncalibrated. Verify voltages against a known reference."
 
 
@@ -112,6 +113,8 @@ class Settings:
             raise ValueError("Use a positive minimum_sum_v and a supported position_model")
         if (c.x_scale_mm is None) != (c.y_scale_mm is None):
             raise ValueError("Set both position scales, or neither")
+        if c.saturation_v is not None and c.saturation_v <= c.minimum_sum_v:
+            raise ValueError("saturation_v must be above minimum_sum_v")
         if c.x_scale_mm == 0 or c.y_scale_mm == 0:
             raise ValueError("Position scales must be nonzero (negative reverses the axis)")
         if self.experiment.one_way_distance_m <= 0 or self.experiment.wavelength_nm <= 0:
