@@ -13,8 +13,8 @@ let archiveItems = [];
 const tokenKey = "oclab-control-token";
 const ago = (s) => Number.isFinite(s) ? `${fmt(s, s < 10 ? 1 : 0)} s ago` : "no data";
 
-async function fetchJSON(url, headers = {}) {
-  const response = await fetch(url, {headers, signal: AbortSignal.timeout(15000)});
+async function fetchJSON(url, headers = {}, timeout = 15000) {
+  const response = await fetch(url, {headers, signal: AbortSignal.timeout(timeout)});
   if (!response.ok) throw new Error(`Request failed (${response.status})`);
   return response.json();
 }
@@ -425,16 +425,23 @@ setInterval(() => {
   $("clock").textContent = `${new Date().toISOString().slice(0, 10)} / ${utc(Date.now())} UTC`;
   if (lastEventAt && Date.now() - lastEventAt > 6000) offline();
 }, 1000);
-setInterval(loadArchive, 15000);
+setInterval(() => { loadArchive(); if (Object.keys(plotFields).length) loadExploreSessions(); }, 15000);
 window.addEventListener("pagehide", () => connection?.close());
 window.addEventListener("pageshow", (event) => { if (event.persisted) connect(); });
 
 // ---- Explore recorded data --------------------------------------------------
 // One panel per variable on a shared time axis (never two y-scales on one axis),
-// or a scatter of one variable against another.
-const EXPLORE_COLOUR = "#4778aa", EXPLORE_BAND = "rgba(71, 120, 170, 0.16)";
-let plotFields = {}, exploreLayout = null, exploreWidth = 0;
-const explore = {mode: "time", vars: ["x_mean_v", "y_mean_v", "sum_mean_v"], x: "position_x", y: "position_y", data: null, request: 0};
+// or a scatter of one variable against another. Each session's data is fetched
+// once (all variables) and cached, so ticking variables or switching mode only
+// redraws. Hover draws on a separate overlay canvas, leaving the chart untouched.
+const EXPLORE_COLOUR = "#4778aa", EXPLORE_BAND = "rgba(71, 120, 170, 0.16)", EXPLORE_MAX_VARS = 6;
+let plotFields = {}, exploreLayout = null, exploreWidth = 0, exploreSessionList = "";
+const explore = {
+  mode: "time", vars: ["x_mean_v", "y_mean_v", "sum_mean_v"], x: "position_x", y: "position_y",
+  cache: new Map(),   // session id -> series response (all plot fields), newest last
+  state: "idle",      // idle | loading | ready | error
+  error: "", request: 0,
+};
 
 function fieldLabel(name, units) {
   const unit = units?.[name] ?? plotFields[name]?.unit;
@@ -442,8 +449,14 @@ function fieldLabel(name, units) {
 }
 
 function tick(value, span) {
-  const digits = Math.max(0, Math.min(5, Math.ceil(-Math.log10(span || 1)) + 2));
-  return value.toFixed(digits);
+  if (Math.abs(value) < span * 1e-9) return "0";
+  const size = Math.max(Math.abs(value), span);
+  if (size < 1e-3 || size >= 1e6) return value.toExponential(2);  // Readable for tiny/huge values
+  return value.toFixed(Math.max(0, Math.min(6, Math.ceil(-Math.log10(span)) + 2)));
+}
+
+function niceValue(v) {
+  return !Number.isFinite(v) ? "—" : v !== 0 && (Math.abs(v) < 1e-3 || Math.abs(v) >= 1e6) ? v.toExponential(3) : Number(v.toPrecision(5)).toString();
 }
 
 function saveFile(blob, name) {
@@ -453,27 +466,71 @@ function saveFile(blob, name) {
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 
+function currentData() {
+  return explore.cache.get($("explore-session").value) || null;
+}
+
 async function loadExploreSessions() {
-  try {
-    const data = await fetchJSON("/api/sessions?limit=100");
-    const select = $("explore-session"), current = select.value;
+  const select = $("explore-session");
+  if (document.activeElement === select) return;  // Never rebuild a list the user has open
+  let data;
+  try { data = await fetchJSON("/api/sessions?limit=100"); } catch (error) { return; }
+  const signature = JSON.stringify(data.items.map((i) => [i.id, i.capture_count, i.status]));
+  const current = select.value;
+  if (signature !== exploreSessionList) {
+    exploreSessionList = signature;
     select.replaceChildren();
     if (!data.items.length) select.append(new Option("No recorded sessions yet", ""));
     for (const item of data.items) {
       const start = new Date(item.started_utc).toISOString().slice(0, 16).replace("T", " ");
       select.append(new Option(`${start} UTC · ${item.mode === "demo" ? "Demo" : "Hardware"} · ${count(item.capture_count)} captures · ${item.status}`, item.id));
     }
-    select.value = [...select.options].some((o) => o.value === current) ? current : select.options[0].value;
-    if (select.value !== current || !explore.data) loadExplore();
-  } catch (error) { $("explore-empty").textContent = "Could not load the session list"; }
+    if ([...select.options].some((o) => o.value === current)) select.value = current;
+    for (const id of explore.cache.keys()) if (!data.items.some((i) => i.id === id)) explore.cache.delete(id);  // Deleted sessions
+  }
+  const selected = data.items.find((i) => i.id === select.value);
+  const cached = explore.cache.get(select.value);
+  if (select.value !== current || (!cached && explore.state !== "loading")) loadExploreData();
+  else if (selected && cached && selected.capture_count !== cached.captures) loadExploreData({quiet: true});  // Still recording
 }
 
 function openInExplorer(id) {
   const select = $("explore-session");
   if (![...select.options].some((o) => o.value === id)) select.append(new Option(id, id));
   select.value = id;
-  loadExplore();
+  loadExploreData();
   $("explore").scrollIntoView({block: "start"});
+}
+
+async function loadExploreData({quiet = false} = {}) {
+  const session = $("explore-session").value;
+  const ticket = ++explore.request;
+  if (!session) { explore.state = "idle"; renderExplore(); return; }
+  if (!quiet && explore.cache.has(session)) { explore.state = "ready"; renderExplore(); return; }
+  if (!quiet) { explore.state = "loading"; renderExplore(); }
+  try {
+    const fields = Object.keys(plotFields).join(",");
+    const data = await fetchJSON(`/api/sessions/${encodeURIComponent(session)}/series?fields=${fields}&points=2000`, {}, 60000);
+    explore.cache.delete(session);
+    explore.cache.set(session, data);
+    while (explore.cache.size > 6) explore.cache.delete(explore.cache.keys().next().value);
+    if (ticket !== explore.request) return;  // Superseded by a newer choice
+    explore.state = "ready";
+  } catch (error) {
+    if (ticket !== explore.request || quiet) return;  // A failed background refresh keeps the current chart
+    explore.state = "error"; explore.error = error.message;
+  }
+  renderExplore();
+}
+
+function updateVarChips() {
+  const full = explore.vars.length >= EXPLORE_MAX_VARS;
+  for (const input of $("explore-vars").querySelectorAll("input")) {
+    input.checked = explore.vars.includes(input.value);
+    input.disabled = full && !input.checked;
+    input.parentElement.title = input.disabled ? `Up to ${EXPLORE_MAX_VARS} variables at once: untick one first` : "";
+  }
+  $("explore-var-count").textContent = `(${explore.vars.length} of ${EXPLORE_MAX_VARS}, one panel each)`;
 }
 
 function buildVarChips() {
@@ -481,11 +538,10 @@ function buildVarChips() {
   box.querySelectorAll("label").forEach((label) => label.remove());
   for (const [name, field] of Object.entries(plotFields)) {
     const label = document.createElement("label"), input = document.createElement("input");
-    label.className = "var-chip"; input.type = "checkbox"; input.value = name; input.checked = explore.vars.includes(name);
+    label.className = "var-chip"; input.type = "checkbox"; input.value = name;
     input.onchange = () => {
-      if (input.checked && explore.vars.length >= 6) { input.checked = false; return; }
-      explore.vars = input.checked ? [...explore.vars, name] : explore.vars.filter((v) => v !== name);
-      loadExplore();
+      explore.vars = input.checked ? [...explore.vars, name].slice(0, EXPLORE_MAX_VARS) : explore.vars.filter((v) => v !== name);
+      updateVarChips(); renderExplore();
     };
     label.append(input, field.label); box.append(label);
   }
@@ -494,6 +550,7 @@ function buildVarChips() {
     for (const [name, field] of Object.entries(plotFields)) select.append(new Option(field.label, name));
   }
   $("explore-x").value = explore.x; $("explore-y").value = explore.y;
+  updateVarChips();
 }
 
 function setExploreMode(mode) {
@@ -502,60 +559,51 @@ function setExploreMode(mode) {
     $(id).classList.toggle("selected", on); $(id).setAttribute("aria-pressed", String(on));
   }
   $("explore-vars").hidden = mode !== "time"; $("explore-xy").hidden = mode !== "xy";
-  loadExplore();
-}
-
-async function loadExplore() {
-  const session = $("explore-session").value;
-  const fields = explore.mode === "time" ? explore.vars : [...new Set([explore.x, explore.y])];
-  const ticket = ++explore.request;
-  explore.data = null;
-  if (!session || !fields.length) { drawExplore(); return; }
-  $("explore-empty").textContent = "Loading…"; $("explore-empty").hidden = false;
-  try {
-    const data = await fetchJSON(`/api/sessions/${encodeURIComponent(session)}/series?fields=${fields.join(",")}&points=2000`);
-    if (ticket !== explore.request) return;  // Superseded by a newer choice
-    explore.data = data;
-  } catch (error) {
-    if (ticket !== explore.request) return;
-    $("explore-empty").textContent = `Could not load the session (${error.message})`;
-    return;
-  }
-  drawExplore();
+  renderExplore();
 }
 
 function exploreSurface(height) {
-  $("explore-chart").style.height = `${height}px`;
+  for (const id of ["explore-chart", "explore-overlay"]) $(id).style.height = `${height}px`;
   const s = surface("explore-chart");
   s.ctx.fillStyle = "#ffffff"; s.ctx.fillRect(0, 0, s.w, s.h);  // Opaque for PNG export
+  clearOverlay();
   return s;
 }
 
-function drawExplore(hover = null) {
-  const d = explore.data;
-  const fields = !d ? [] : explore.mode === "time" ? explore.vars.filter((f) => d.fields[f]) : [explore.x, explore.y];
-  const ready = Boolean(d && d.t_ns.length && fields.length && fields.every((f) => d.fields[f]));
-  $("explore-png").disabled = $("explore-csv").disabled = !ready;
-  $("explore-count").textContent = d ? `${count(d.captures)} captures${d.binned ? ` · averaged into ${count(d.t_ns.length)} points (band = min to max)` : ""}` : "";
-  if (!ready) {
-    exploreSurface(260); exploreLayout = null;
-    if (d) $("explore-empty").textContent = !d.t_ns.length ? "This session has no captures" : "Choose at least one variable";
-    else if (!$("explore-session").value) $("explore-empty").textContent = "Choose a session to plot";
-    $("explore-empty").hidden = false;
-    return;
-  }
-  $("explore-empty").hidden = true;
-  if (explore.mode === "time") drawExploreTime(d, fields, hover); else drawExploreXY(d, hover);
+function clearOverlay() {
+  const overlay = $("explore-overlay");
+  overlay.getContext("2d").clearRect(0, 0, overlay.width, overlay.height);
+  $("explore-tooltip").hidden = true;
 }
 
-function drawExploreTime(d, fields, hover) {
-  const rowH = 128, gap = 22, margin = {l: 62, r: 18, t: 6, b: 30};
+function showExploreMessage(text) {
+  exploreSurface(200); exploreLayout = null;  // Clear any previous chart under the message
+  $("explore-empty").textContent = text; $("explore-empty").hidden = false;
+}
+
+function renderExplore() {
+  const d = explore.state === "ready" ? currentData() : null;
+  const fields = !d ? [] : explore.mode === "time" ? explore.vars : [explore.x, explore.y];
+  const ready = Boolean(d && d.t_ns.length && fields.length);
+  $("explore-png").disabled = $("explore-csv").disabled = !ready;
+  $("explore-count").textContent = d ? `${count(d.captures)} captures${d.binned ? ` · averaged into ${count(d.t_ns.length)} points (band = min to max)` : ""}` : "";
+  if (!$("explore-session").value) return showExploreMessage("No recorded sessions to plot yet");
+  if (explore.state === "loading") return showExploreMessage("Loading…");
+  if (explore.state === "error") return showExploreMessage(`Could not load this session (${explore.error}). Choose it again to retry.`);
+  if (!d) return showExploreMessage("Choose a session to plot");
+  if (!d.t_ns.length) return showExploreMessage("This session has no captures");
+  if (!fields.length) return showExploreMessage("Tick at least one variable to plot");
+  $("explore-empty").hidden = true;
+  if (explore.mode === "time") drawExploreTime(d, fields); else drawExploreXY(d);
+}
+
+function drawExploreTime(d, fields) {
+  const rowH = 128, gap = 22, margin = {l: 66, r: 18, t: 6, b: 30};
   const {ctx, w, h} = exploreSurface(margin.t + fields.length * (rowH + gap) - gap + margin.b);
   const t = d.t_ns.map((x) => x / 1e9);
   const steps = t.slice(1).map((x, i) => x - t[i]).sort((a, b) => a - b);
   const typical = steps[Math.floor(steps.length / 2)] || 1;
-  const gapLimit = 5 * typical;
-  const broken = (i) => i > 0 && t[i] - t[i - 1] > gapLimit;
+  const broken = (i) => i > 0 && t[i] - t[i - 1] > 5 * typical;  // Gaps are never joined
   // Long breaks (PC asleep, app stopped) collapse to a narrow strip so each recording stretch stays readable.
   const GAP_PX = 34, segments = [];
   let first = 0;
@@ -566,15 +614,12 @@ function drawExploreTime(d, fields, hover) {
   const total = segments.reduce((a, [a0, a1]) => a + Math.max(t[a1] - t[a0], typical), 0);
   let cursor = margin.l;
   const spans = segments.map(([a0, a1]) => {
-    const px = width * Math.max(t[a1] - t[a0], typical) / total, span = {t0: t[a0], t1: t[a1], x0: cursor, x1: cursor + px};
+    const px = width * Math.max(t[a1] - t[a0], typical) / total, span = {a0, a1, t0: t[a0], t1: t[a1], x0: cursor, x1: cursor + px};
     cursor += px + GAP_PX;
     return span;
   });
-  const X = (x) => {
-    const span = spans.find((sp) => x <= sp.t1) || spans[spans.length - 1];
-    return span.t1 === span.t0 ? (span.x0 + span.x1) / 2 : span.x0 + (x - span.t0) / (span.t1 - span.t0) * (span.x1 - span.x0);
-  };
-  exploreLayout = {mode: "time", t, X, fields};
+  const xs = new Float64Array(t.length);  // Pixel position of every point, increasing
+  for (const sp of spans) for (let i = sp.a0; i <= sp.a1; i++) xs[i] = sp.t1 === sp.t0 ? (sp.x0 + sp.x1) / 2 : sp.x0 + (t[i] - sp.t0) / (sp.t1 - sp.t0) * (sp.x1 - sp.x0);
   spans.slice(1).forEach((span, k) => {  // Shade and label each collapsed gap
     const x0 = spans[k].x1 + 4, x1 = span.x0 - 4, hours = (span.t0 - spans[k].t1) / 3600;
     ctx.fillStyle = "#f1f3f2"; ctx.fillRect(x0, margin.t, x1 - x0, h - margin.t - margin.b);
@@ -582,18 +627,24 @@ function drawExploreTime(d, fields, hover) {
     ctx.fillStyle = "#8a969b"; ctx.textAlign = "right"; ctx.font = "9px Arial";
     ctx.fillText(hours >= 1 ? `${hours.toFixed(1)} h gap` : `${Math.round(hours * 60)} min gap`, 0, 0); ctx.restore();
   });
-  ctx.font = "9px Arial";
+  const panels = [];
   fields.forEach((f, row) => {
     const top = margin.t + row * (rowH + gap), s = d.fields[f];
     ctx.fillStyle = "#1a3142"; ctx.textAlign = "left"; ctx.font = "10px Arial";
-    ctx.fillText(fieldLabel(f, d.units), margin.l, top + 9); ctx.font = "9px Arial";
+    ctx.fillText(fieldLabel(f, d.units), margin.l, top + 9);
+    ctx.font = "9px Arial";
     const lows = s.min.filter(Number.isFinite), highs = s.max.filter(Number.isFinite);
-    if (!lows.length) { ctx.fillStyle = "#8a969b"; ctx.fillText("No values recorded", margin.l, top + 40); return; }
-    let lo = Math.min(...lows), hi = Math.max(...highs);
-    if (hi - lo < 1e-12) { const pad = Math.abs(hi) * 0.05 || 0.5; lo -= pad; hi += pad; }
+    if (!lows.length) {
+      ctx.fillStyle = "#8a969b";
+      ctx.fillText("No values in this session (for example, no capture passed the validity checks)", margin.l, top + 44);
+      panels.push(null); return;
+    }
+    let lo = lows.reduce((a, b) => Math.min(a, b)), hi = highs.reduce((a, b) => Math.max(a, b));
+    if (hi - lo < Math.abs(hi) * 1e-9 + 1e-15) { const pad = Math.abs(hi) * 0.05 || 0.5; lo -= pad; hi += pad; }
     const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
     const plotTop = top + 16, plotH = rowH - 16;
     const Y = (v) => plotTop + (hi - v) / (hi - lo) * plotH;
+    panels.push({f, Y});
     for (let i = 0; i <= 2; i++) {
       const v = lo + (hi - lo) * i / 2, y = Y(v);
       ctx.strokeStyle = "#e9eded"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(margin.l, y); ctx.lineTo(w - margin.r, y); ctx.stroke();
@@ -605,8 +656,8 @@ function drawExploreTime(d, fields, hover) {
       const flush = () => {
         if (run.length > 1) {
           ctx.beginPath();
-          run.forEach((i, k) => (k ? ctx.lineTo : ctx.moveTo).call(ctx, X(t[i]), Y(s.max[i])));
-          [...run].reverse().forEach((i) => ctx.lineTo(X(t[i]), Y(s.min[i])));
+          run.forEach((i, k) => (k ? ctx.lineTo : ctx.moveTo).call(ctx, xs[i], Y(s.max[i])));
+          for (let k = run.length - 1; k >= 0; k--) ctx.lineTo(xs[run[k]], Y(s.min[run[k]]));
           ctx.closePath(); ctx.fill();
         }
         run = [];
@@ -618,7 +669,7 @@ function drawExploreTime(d, fields, hover) {
     let pen = false;
     s.mean.forEach((v, i) => {
       if (!Number.isFinite(v)) { pen = false; return; }
-      if (!pen || broken(i)) ctx.moveTo(X(t[i]), Y(v)); else ctx.lineTo(X(t[i]), Y(v));
+      if (!pen || broken(i)) ctx.moveTo(xs[i], Y(v)); else ctx.lineTo(xs[i], Y(v));
       pen = true;
     });
     ctx.stroke();
@@ -626,12 +677,8 @@ function drawExploreTime(d, fields, hover) {
     ctx.fillStyle = EXPLORE_COLOUR;
     s.mean.forEach((v, i) => {
       const joined = (j) => j >= 0 && j < t.length && Number.isFinite(s.mean[j]) && !broken(Math.max(i, j));
-      if (Number.isFinite(v) && !joined(i - 1) && !joined(i + 1)) { ctx.beginPath(); ctx.arc(X(t[i]), Y(v), 2.5, 0, Math.PI * 2); ctx.fill(); }
+      if (Number.isFinite(v) && !joined(i - 1) && !joined(i + 1)) { ctx.beginPath(); ctx.arc(xs[i], Y(v), 2.5, 0, Math.PI * 2); ctx.fill(); }
     });
-    if (hover !== null && Number.isFinite(s.mean[hover])) {
-      ctx.fillStyle = EXPLORE_COLOUR; ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(X(t[hover]), Y(s.mean[hover]), 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    }
   });
   const axisY = h - margin.b + 18, multiDay = t[t.length - 1] - t[0] > 86400;
   const stamp = (x) => new Date(x * 1000).toISOString().slice(multiDay ? 5 : 11, 19).replace("T", " ");
@@ -639,26 +686,33 @@ function drawExploreTime(d, fields, hover) {
   spans.forEach((span, k) => {  // Start and end of each stretch, plus a middle tick when there is room
     const room = span.x1 - span.x0;
     if (k === 0 || room > 60) { ctx.textAlign = "left"; ctx.fillText(stamp(span.t0), span.x0, axisY); }
-    if (room > 150) { ctx.textAlign = "right"; ctx.fillText(stamp(span.t1), span.x1, axisY); }
+    if (room > 150 && span.t1 > span.t0) { ctx.textAlign = "right"; ctx.fillText(stamp(span.t1), span.x1, axisY); }
     if (room > 420) { ctx.textAlign = "center"; ctx.fillText(stamp((span.t0 + span.t1) / 2), (span.x0 + span.x1) / 2, axisY); }
   });
-  if (hover !== null) {
-    ctx.strokeStyle = "#9aa6ab"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(X(t[hover]), margin.t); ctx.lineTo(X(t[hover]), h - margin.b + 4); ctx.stroke();
-  }
+  exploreLayout = {mode: "time", xs, panels, fields, top: margin.t, bottom: h - margin.b + 4};
 }
 
-function drawExploreXY(d, hover) {
-  const margin = {l: 64, r: 22, t: 14, b: 44};
-  const box = $("explore-wrap").getBoundingClientRect();
-  const {ctx, w, h} = exploreSurface(Math.max(300, Math.min(480, box.width * 0.55)));
+function drawExploreXY(d) {
+  const margin = {l: 70, r: 22, t: 14, b: 44};
+  const width = $("explore-wrap").getBoundingClientRect().width;
+  const {ctx, w, h} = exploreSurface(Math.max(300, Math.min(480, width * 0.55)));
   const xs = d.fields[explore.x].mean, ys = d.fields[explore.y].mean;
   const idx = xs.map((_, i) => i).filter((i) => Number.isFinite(xs[i]) && Number.isFinite(ys[i]));
-  ctx.font = "9px Arial";
-  if (!idx.length) { exploreLayout = null; ctx.fillStyle = "#8a969b"; ctx.textAlign = "center"; ctx.fillText("No captures have both values", w / 2, h / 2); return; }
-  const range = (a) => { let lo = Math.min(...a), hi = Math.max(...a); if (hi - lo < 1e-12) { const p = Math.abs(hi) * 0.05 || 0.5; lo -= p; hi += p; } const p = (hi - lo) * 0.06; return [lo - p, hi + p]; };
+  if (!idx.length) {
+    exploreLayout = null;
+    $("explore-empty").textContent = `No capture in this session has both ${plotFields[explore.x].label} and ${plotFields[explore.y].label}`;
+    $("explore-empty").hidden = false;
+    return;
+  }
+  const range = (a) => {
+    let lo = a.reduce((p, q) => Math.min(p, q)), hi = a.reduce((p, q) => Math.max(p, q));
+    if (hi - lo < Math.abs(hi) * 1e-9 + 1e-15) { const p = Math.abs(hi) * 0.05 || 0.5; lo -= p; hi += p; }
+    const p = (hi - lo) * 0.06; return [lo - p, hi + p];
+  };
   const [xlo, xhi] = range(idx.map((i) => xs[i])), [ylo, yhi] = range(idx.map((i) => ys[i]));
   const X = (v) => margin.l + (v - xlo) / (xhi - xlo) * (w - margin.l - margin.r);
   const Y = (v) => margin.t + (yhi - v) / (yhi - ylo) * (h - margin.t - margin.b);
+  ctx.font = "9px Arial";
   for (let i = 0; i <= 4; i++) {
     const vx = xlo + (xhi - xlo) * i / 4, vy = ylo + (yhi - ylo) * i / 4;
     ctx.strokeStyle = "#e9eded"; ctx.lineWidth = 1;
@@ -672,39 +726,57 @@ function drawExploreXY(d, hover) {
   ctx.fillStyle = EXPLORE_COLOUR; ctx.globalAlpha = 0.45;
   for (const i of idx) { ctx.beginPath(); ctx.arc(X(xs[i]), Y(ys[i]), 2.5, 0, Math.PI * 2); ctx.fill(); }
   ctx.globalAlpha = 1;
-  if (hover !== null) {
-    ctx.fillStyle = EXPLORE_COLOUR; ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(X(xs[hover]), Y(ys[hover]), 5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  }
   exploreLayout = {mode: "xy", points: idx.map((i) => [X(xs[i]), Y(ys[i]), i])};
 }
 
 function exploreHover(event) {
-  const d = explore.data;
-  if (!exploreLayout || !d) return;
-  const rect = event.target.getBoundingClientRect(), mx = event.clientX - rect.left, my = event.clientY - rect.top;
+  const d = currentData();
+  if (!exploreLayout || !d || explore.state !== "ready") return;
+  const rect = $("explore-chart").getBoundingClientRect(), mx = event.clientX - rect.left, my = event.clientY - rect.top;
   let index = null;
   if (exploreLayout.mode === "time") {
-    let best = Infinity;
-    exploreLayout.t.forEach((x, i) => { const dist = Math.abs(exploreLayout.X(x) - mx); if (dist < best) { best = dist; index = i; } });
+    const xs = exploreLayout.xs;  // Binary search for the nearest point
+    let lo = 0, hi = xs.length - 1;
+    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (xs[mid] < mx) lo = mid; else hi = mid; }
+    index = Math.abs(xs[lo] - mx) <= Math.abs(xs[hi] - mx) ? lo : hi;
   } else {
     let best = 14 ** 2;  // Hit radius larger than the mark
     for (const [px, py, i] of exploreLayout.points) { const dist = (px - mx) ** 2 + (py - my) ** 2; if (dist < best) { best = dist; index = i; } }
   }
-  drawExplore(index);
+  const overlay = $("explore-overlay"), scale = window.devicePixelRatio || 1;
+  overlay.width = Math.round(rect.width * scale); overlay.height = Math.round(rect.height * scale);
+  const ctx = overlay.getContext("2d"); ctx.scale(scale, scale);
   if (index === null) { $("explore-tooltip").hidden = true; return; }
-  const fields = exploreLayout.mode === "time" ? exploreLayout.fields : [explore.x, explore.y];
-  const lines = [`${new Date(d.t_ns[index] / 1e6).toISOString().slice(0, 19).replace("T", " ")} UTC`];
-  for (const f of [...new Set(fields)]) {
-    const s = d.fields[f], v = s.mean[index];
-    lines.push(`${fieldLabel(f, d.units)}: ${Number.isFinite(v) ? v.toPrecision(5) : "—"}${d.binned && Number.isFinite(v) ? `  [${s.min[index].toPrecision(4)} to ${s.max[index].toPrecision(4)}]` : ""}`);
+  ctx.fillStyle = EXPLORE_COLOUR; ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2;
+  const fields = exploreLayout.mode === "time" ? exploreLayout.fields : [...new Set([explore.x, explore.y])];
+  if (exploreLayout.mode === "time") {
+    const x = exploreLayout.xs[index];
+    ctx.strokeStyle = "#9aa6ab"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x, exploreLayout.top); ctx.lineTo(x, exploreLayout.bottom); ctx.stroke();
+    ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2;
+    for (const panel of exploreLayout.panels) {
+      const v = panel && d.fields[panel.f].mean[index];
+      if (panel && Number.isFinite(v)) { ctx.beginPath(); ctx.arc(x, panel.Y(v), 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
+    }
+  } else {
+    const point = exploreLayout.points.find((p) => p[2] === index);
+    ctx.beginPath(); ctx.arc(point[0], point[1], 5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
   }
-  $("explore-tooltip").textContent = lines.join("\n"); $("explore-tooltip").hidden = false;
+  const lines = [`${new Date(d.t_ns[index] / 1e6).toISOString().slice(0, 19).replace("T", " ")} UTC`];
+  for (const f of fields) {
+    const s = d.fields[f], v = s.mean[index];
+    lines.push(`${fieldLabel(f, d.units)}: ${niceValue(v)}${d.binned && Number.isFinite(v) && s.min[index] !== s.max[index] ? `  [${niceValue(s.min[index])} to ${niceValue(s.max[index])}]` : ""}`);
+  }
+  const tip = $("explore-tooltip");
+  tip.textContent = lines.join("\n"); tip.hidden = false;
+  const wrap = $("explore-wrap").getBoundingClientRect(), offsetX = rect.left - wrap.left, offsetY = rect.top - wrap.top;
+  const left = offsetX + mx + 16 + tip.offsetWidth > wrap.width ? offsetX + mx - 16 - tip.offsetWidth : offsetX + mx + 16;
+  tip.style.left = `${Math.max(0, left)}px`;
+  tip.style.top = `${Math.max(0, Math.min(offsetY + my + 12, wrap.height - tip.offsetHeight))}px`;
 }
 
 function exploreCsv() {
-  const d = explore.data;
-  const fields = [...new Set(explore.mode === "time" ? explore.vars.filter((f) => d.fields[f]) : [explore.x, explore.y])];
+  const d = currentData();
+  const fields = [...new Set(explore.mode === "time" ? explore.vars : [explore.x, explore.y])];
   const header = ["utc", "t_ns"];
   for (const f of fields) header.push(f, ...(d.binned ? [`${f}_min`, `${f}_max`] : []));
   const rows = d.t_ns.map((ns, i) => {
@@ -715,18 +787,18 @@ function exploreCsv() {
   saveFile(new Blob([[header.join(","), ...rows].join("\r\n") + "\r\n"], {type: "text/csv"}), `${d.session_id}-${explore.mode === "time" ? "time" : "xy"}.csv`);
 }
 
-$("explore-session").onchange = loadExplore;
+$("explore-session").onchange = () => loadExploreData();
 $("explore-mode-time").onclick = () => setExploreMode("time");
 $("explore-mode-xy").onclick = () => setExploreMode("xy");
-$("explore-x").onchange = (event) => { explore.x = event.target.value; loadExplore(); };
-$("explore-y").onchange = (event) => { explore.y = event.target.value; loadExplore(); };
+$("explore-x").onchange = (event) => { explore.x = event.target.value; renderExplore(); };
+$("explore-y").onchange = (event) => { explore.y = event.target.value; renderExplore(); };
 $("explore-chart").addEventListener("pointermove", exploreHover);
-$("explore-chart").addEventListener("pointerleave", () => { $("explore-tooltip").hidden = true; drawExplore(); });
-$("explore-png").onclick = () => $("explore-chart").toBlob((blob) => saveFile(blob, `${explore.data.session_id}-${explore.mode === "time" ? "time" : "xy"}.png`));
+$("explore-chart").addEventListener("pointerleave", clearOverlay);
+$("explore-png").onclick = () => $("explore-chart").toBlob((blob) => saveFile(blob, `${currentData().session_id}-${explore.mode === "time" ? "time" : "xy"}.png`));
 $("explore-csv").onclick = exploreCsv;
 new ResizeObserver(() => {
   const width = $("explore-wrap").getBoundingClientRect().width;
-  if (Math.abs(width - exploreWidth) > 1) { exploreWidth = width; drawExplore(); }  // Width only: our height changes must not loop
+  if (Math.abs(width - exploreWidth) > 1) { exploreWidth = width; renderExplore(); }  // Width only: our height changes must not loop
 }).observe($("explore-wrap"));
 
 async function init() {
@@ -767,7 +839,7 @@ async function init() {
     plotFields = await fetchJSON("/api/plot-fields");
     buildVarChips();
     setExploreMode("time");
-  } catch (error) { $("explore-empty").textContent = "Could not load plot options"; }
-  loadExploreSessions();
+    loadExploreSessions();
+  } catch (error) { showExploreMessage("Could not load plot options. Reload the page to retry."); }
 }
 init();

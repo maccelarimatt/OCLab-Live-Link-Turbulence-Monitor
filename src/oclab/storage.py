@@ -271,7 +271,12 @@ class Store:
         return deleted
 
     def series(self, session_id, fields, points=2000):
-        """Per-capture values for plotting, binned to at most `points` (mean, min, max per bin)."""
+        """Per-capture values for plotting, binned to at most `points` (mean, min, max per bin).
+
+        Bins never straddle a long break (PC asleep, app stopped): each run of captures is
+        binned separately, in proportion to its length, so no averaged point lands in a gap.
+        Missing values (None, non-numeric) are ignored; a bin with none is null, never 0.
+        """
         values = {f: [] for f in fields}
         times, after = [], 0
         while True:  # Bounded batches; no long read transaction
@@ -286,34 +291,33 @@ class Store:
                 times.append(data["host_received_ns"])
                 for f in fields:
                     v = data.get(f)
-                    values[f].append(float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else np.nan)
+                    values[f].append(v if isinstance(v, (int, float)) and not isinstance(v, bool) else np.nan)
         n = len(times)
+        result = {"captures": n, "binned": n > points, "t_ns": [], "fields": {f: {"mean": [], "min": [], "max": []} for f in fields}}
+        if not n:
+            return result
         t = np.array(times, dtype=np.int64)
-        # Bins never straddle a long break (PC asleep, app stopped): each run of captures is binned
-        # separately, in proportion to its length, so no averaged point lands inside a gap.
-        if n:
-            steps = np.diff(t)
-            typical = float(np.median(steps)) if len(steps) else 1e9
-            breaks = np.flatnonzero(steps > max(300e9, 10 * typical)) + 1
-            runs = np.split(np.arange(n), breaks)
-            edges = [0]
-            for run in runs:
-                bins = min(len(run), max(1, round(points * len(run) / n)))
-                edges += [int(e) for e in np.linspace(run[0], run[-1] + 1, bins + 1)[1:]]
-            edges = np.array(edges)
-        else:
-            edges = np.array([0])
-        def reduce(a, fn):
-            out = []
-            for lo, hi in zip(edges[:-1], edges[1:]):
-                chunk = a[lo:hi]
-                out.append(None if not np.isfinite(chunk).any() else float(fn(chunk[np.isfinite(chunk)])))
-            return out
-        result = {"captures": n, "binned": n > points,
-                  "t_ns": [int(t[lo:hi].mean()) for lo, hi in zip(edges[:-1], edges[1:])], "fields": {}}
+        steps = np.diff(t)
+        typical = float(np.median(steps)) if len(steps) else 1e9
+        starts = []
+        for run in np.split(np.arange(n), np.flatnonzero(steps > max(300e9, 10 * typical)) + 1):
+            bins = min(len(run), max(1, round(points * len(run) / n)))
+            starts += [int(e) for e in np.linspace(run[0], run[-1] + 1, bins + 1)[:-1]]
+        starts = np.unique(np.array(starts))
+        sizes = np.diff(np.append(starts, n))
+        result["t_ns"] = (np.add.reduceat(t - t[0], starts) // sizes + t[0]).tolist()
+
+        def listed(a, empty):
+            return [None if e else float(v) for v, e in zip(a, empty)]
         for f in fields:
             a = np.array(values[f], dtype=float)
-            result["fields"][f] = {"mean": reduce(a, np.mean), "min": reduce(a, np.min), "max": reduce(a, np.max)}
+            ok = np.isfinite(a)
+            counts = np.add.reduceat(ok.astype(np.int64), starts)
+            empty = counts == 0
+            mean = np.add.reduceat(np.where(ok, a, 0.0), starts) / np.maximum(counts, 1)
+            result["fields"][f] = {"mean": listed(mean, empty),
+                                   "min": listed(np.minimum.reduceat(np.where(ok, a, np.inf), starts), empty),
+                                   "max": listed(np.maximum.reduceat(np.where(ok, a, -np.inf), starts), empty)}
         return result
 
     def history(self, limit=600):

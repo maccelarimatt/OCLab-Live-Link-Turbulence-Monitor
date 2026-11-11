@@ -72,6 +72,8 @@ def create_app(settings: Settings | None = None, recorder: Recorder | None = Non
     settings.validate()
     recorder = recorder or Recorder(settings)
     exports = threading.BoundedSemaphore(2)
+    series_cache = {}  # (session, capture_count, fields, points) -> result; captures are immutable
+    series_lock = threading.Lock()
     streams = asyncio.Semaphore(100)
 
     @asynccontextmanager
@@ -164,12 +166,20 @@ def create_app(settings: Settings | None = None, recorder: Recorder | None = Non
         session = get_session(session_id)
         names = [f for f in fields.split(",") if f]
         unknown = [f for f in names if f not in PLOT_FIELDS]
-        if not names or len(names) > 6 or unknown:
-            raise HTTPException(422, f"Choose 1 to 6 of: {', '.join(PLOT_FIELDS)}" + (f" (unknown: {', '.join(unknown)})" if unknown else ""))
+        if not names or len(set(names)) != len(names) or unknown:
+            raise HTTPException(422, f"Choose distinct fields from: {', '.join(PLOT_FIELDS)}" + (f" (unknown: {', '.join(unknown)})" if unknown else ""))
         calibration = session["metadata"]["settings"]["calibration"]
         position_unit = "mm" if calibration.get("x_scale_mm") is not None else \
             "ratio" if calibration.get("position_model", "difference_over_sum") == "difference_over_sum" else "V"
-        data = recorder.store.series(session_id, names, points)
+        key = (session_id, session["capture_count"], tuple(names), points)
+        with series_lock:
+            data = series_cache.get(key)
+        if data is None:
+            data = recorder.store.series(session_id, names, points)
+            with series_lock:
+                if len(series_cache) >= 8:
+                    series_cache.pop(next(iter(series_cache)))  # Oldest first
+                series_cache[key] = data
         units = {f: PLOT_FIELDS[f][1] if PLOT_FIELDS[f][1] is not None else position_unit for f in names}
         return {"session_id": session_id, "mode": session["mode"], "units": units, **data}
 

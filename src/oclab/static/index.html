@@ -88,9 +88,9 @@
           <div class="segmented" role="group" aria-label="Plot type"><button class="selected" id="explore-mode-time" aria-pressed="true">Over time</button><button id="explore-mode-xy" aria-pressed="false">Y against X</button></div>
           <div class="explore-actions"><button class="button" id="explore-png" disabled>PNG ↓</button><button class="button" id="explore-csv" disabled>CSV ↓</button></div>
         </div>
-        <fieldset class="explore-vars" id="explore-vars"><legend>Variables <span>(up to 6, one panel each)</span></legend></fieldset>
+        <fieldset class="explore-vars" id="explore-vars"><legend>Variables <span id="explore-var-count">(up to 6, one panel each)</span></legend></fieldset>
         <div class="explore-xy" id="explore-xy" hidden><label>X axis <select id="explore-x" aria-label="Variable on the X axis"></select></label><label>Y axis <select id="explore-y" aria-label="Variable on the Y axis"></select></label></div>
-        <div class="explore-chart" id="explore-wrap"><canvas id="explore-chart" role="img" aria-label="Plot of the selected session and variables"></canvas><div class="chart-empty" id="explore-empty">Choose a session to plot</div><div id="explore-tooltip" class="explore-tooltip" hidden></div></div>
+        <div class="explore-chart" id="explore-wrap"><div class="explore-canvases"><canvas id="explore-chart" role="img" aria-label="Plot of the selected session and variables"></canvas><canvas id="explore-overlay" aria-hidden="true"></canvas></div><div class="chart-empty" id="explore-empty">Choose a session to plot</div><div id="explore-tooltip" class="explore-tooltip" hidden></div></div>
         <div class="panel-foot"><span id="explore-caption">Per-capture values · time in UTC · gaps are not joined</span><span id="explore-count"></span></div>
       </div>
     </section>

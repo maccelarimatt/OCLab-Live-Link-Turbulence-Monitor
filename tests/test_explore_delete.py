@@ -89,7 +89,8 @@ def test_series_validates_fields(app_and_store):
     session = add_session(store, settings, 3, position_x=0.1)
     client = TestClient(app)
     assert client.get(f"/api/sessions/{session}/series?fields=raw_secrets").status_code == 422
-    assert client.get(f"/api/sessions/{session}/series?fields=" + ",".join(["x_mean_v"] * 7)).status_code == 422
+    assert client.get(f"/api/sessions/{session}/series?fields=x_mean_v,x_mean_v").status_code == 422  # Duplicates
+    assert client.get(f"/api/sessions/{session}/series?fields=" + ",".join(client.get("/api/plot-fields").json())).status_code == 200
     assert client.get("/api/sessions/nope/series?fields=x_mean_v").status_code == 404
     assert client.get(f"/api/sessions/{session}/series?fields=position_x").json()["units"]["position_x"] == "ratio"
     assert "scintillation_index" in client.get("/api/plot-fields").json()
