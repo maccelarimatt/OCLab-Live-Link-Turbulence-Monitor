@@ -19,7 +19,9 @@ depth = 16384                          # Samples per burst: 4096, 8192 or 16384 
 # Must divide sample_rate. Usable bandwidth = 0.4 x store_rate_hz (2500 -> 1 kHz).
 # Override at start-up with: ./run.sh --store-rate 5000
 store_rate_hz = 2500
-volts_per_div = [1.0, 1.0, 1.0, 1.0]   # Scope input ranges, before probe multipliers
+volts_per_div = [1.0, 1.0, 1.0, 1.0]   # Scope input ranges, before probe multipliers. Full scale = +/-4.1 x V/div.
+                                       # Choose each so its largest signal fits with headroom: SUM is usually the
+                                       # largest (e.g. 2 V/div for SUM up to ~7 V). Check clipped_fraction stays 0.
 probe_factors = [1.0, 1.0, 1.0, 1.0]   # 1 for direct BNC; match actual probes
 x_channel = 1
 y_channel = 2
