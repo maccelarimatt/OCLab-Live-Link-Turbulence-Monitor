@@ -242,7 +242,13 @@ Use a separate disk for backups where possible. To move the archive, stop the re
 
 ## API
 
-Interactive schema: `/docs`. Apart from the logging switch below, all endpoints are read-only; there are no deletion endpoints or settings changes.
+Interactive schema: `/docs`. Apart from the logging switch and session deletion below, all endpoints are read-only; there are no settings changes.
+
+### Exploring and deleting recordings
+
+The dashboard's **Explore recorded data** panel plots any saved session: **Over time** shows up to six per-capture variables (voltages, position, wander, scintillation, quality fractions, wind, temperature, humidity, pressure, light), one panel each on a shared UTC axis; **Y against X** plots one against another. Long sessions are averaged into at most 2,000 points (the shaded band spans each point's minimum to maximum); averaging never crosses a break, and breaks over 5 minutes (PC asleep, app stopped) are collapsed and labelled with their length. Hover for exact values; **PNG ↓** and **CSV ↓** save the plotted values. Each archive row has a **Plot** link.
+
+On the acquisition PC (or with the control token), each archive row also has a checkbox and **Delete selected** permanently removes those sessions and their captures after confirmation. A session that is still recording cannot be deleted; stop logging first. Weather samples are a continuous time series shared with neighbouring sessions and are kept. SQLite reuses the freed space for new recordings; to shrink the file itself, stop the app and run `.venv/bin/python -c "import sqlite3; sqlite3.connect('data/recordings.sqlite3').execute('VACUUM')"`.
 
 ### Logging switch
 
@@ -261,6 +267,9 @@ Who may switch logging:
 | `GET /api/events` | Server-sent `snapshot` events every second, with recent capture summaries and weather status; bounded to 100 connections/process. |
 | `GET /api/health` | HTTP 200 while the scope delivers fresh data (whether or not logging is on; see `logging`), 503 while starting/disconnected/stale or unable to save. Demo is explicitly identified. A separate `weather` block reports the station; it does not affect the status code. |
 | `GET /api/control` | Whether this browser may use the logging switch, and the current logging state. |
+| `GET /api/plot-fields` | Variables the explorer can plot, with labels and units. |
+| `GET /api/sessions/{id}/series?fields=a,b&points=2000` | Per-capture values for 1–6 variables, binned to at most `points` (mean, min, max per bin); nulls stay null. |
+| `DELETE /api/sessions/{id}` | Permanently deletes a finished session and its captures (409 while recording). Same requirements as `POST /api/logging`. |
 | `POST /api/logging` | `{"enabled": true|false}` starts or stops saving. Requires `X-OCLab-Control: 1` and either a direct connection on the acquisition PC or `X-Control-Token`. |
 | `GET /api/weather/live` | Latest W and E values, port, state, staleness, ages, last-second wind mean/max and line/error counters. |
 | `GET /api/weather/history?seconds=300` | Wind in 1 s bins (mean, max, count) and every environment sample; 1–3,600 s. |

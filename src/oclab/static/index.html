@@ -17,7 +17,7 @@
         <span class="brand-mark" aria-hidden="true">OC<span>LAB</span></span>
         <span class="brand-name">Optical Communications Lab<small>UNIVERSITY OF THE WITWATERSRAND</small></span>
       </a>
-      <nav aria-label="Main navigation"><a class="active" href="#main">Live monitor</a><a href="#archive">Data archive</a><a href="#experiment">The experiment <span aria-hidden="true">↗</span></a></nav>
+      <nav aria-label="Main navigation"><a class="active" href="#main">Live monitor</a><a href="#archive">Data archive</a><a href="#explore">Explore</a><a href="#experiment">The experiment <span aria-hidden="true">↗</span></a></nav>
     </div>
   </header>
 
@@ -74,10 +74,25 @@
 
     <section id="archive" class="archive-section">
       <div class="section-heading"><div><p class="eyebrow">RECORDED MEASUREMENTS</p><h2>Research data archive</h2><p>Every acquired sample is saved locally. Download capture summaries or full waveforms.</p></div><button class="button" id="refresh-archive"><span aria-hidden="true">↻</span> Refresh archive</button></div>
-      <div class="table-scroll"><table><thead><tr><th>Session / UTC start</th><th>Source</th><th>Status</th><th>Captures</th><th>Samples / channel</th><th>Download</th></tr></thead><tbody id="sessions-body"><tr><td colspan="6" class="empty-table">Loading the recording archive…</td></tr></tbody></table></div>
-      <div class="archive-footer"><span id="archive-count">—</span><div class="pagination"><button id="previous-page" disabled aria-label="Previous archive page">← Previous</button><button id="next-page" disabled aria-label="Next archive page">Next →</button></div></div>
+      <div class="table-scroll"><table><thead><tr><th class="select-col" hidden><input type="checkbox" id="select-all-sessions" aria-label="Select all sessions on this page"></th><th>Session / UTC start</th><th>Source</th><th>Status</th><th>Captures</th><th>Samples / channel</th><th>Download</th></tr></thead><tbody id="sessions-body"><tr><td colspan="7" class="empty-table">Loading the recording archive…</td></tr></tbody></table></div>
+      <div class="archive-footer"><span id="archive-count">—</span><button class="button danger" id="delete-sessions" hidden disabled>Delete selected</button><div class="pagination"><button id="previous-page" disabled aria-label="Previous archive page">← Previous</button><button id="next-page" disabled aria-label="Next archive page">Next →</button></div></div>
       <p class="archive-help">CSV = one summary per capture, including the weather at that moment. Raw CSV.gz = every stored sample of all four channels, anti-alias filtered to the operating frequency. Minutes = per-minute coverage, scintillation and weather. NPZ = the whole session as NumPy arrays with per-minute spectra, for analysis. Weather = every wind (10 Hz) and environment (1 Hz) sample during the session. Metadata includes settings, calibration and weather sensor notes. Active-session downloads include data saved when the request starts.</p>
       <p id="license-note" class="archive-help"></p>
+    </section>
+
+    <section id="explore" class="explore-section" aria-labelledby="explore-title">
+      <div class="section-heading"><div><p class="eyebrow">ANALYSE RECORDINGS</p><h2 id="explore-title">Explore recorded data</h2><p>Plot any saved session over time, or one variable against another.</p></div></div>
+      <div class="panel explore-panel">
+        <div class="explore-controls">
+          <label class="explore-session">Session <select id="explore-session" aria-label="Session to plot"><option value="">Loading sessions…</option></select></label>
+          <div class="segmented" role="group" aria-label="Plot type"><button class="selected" id="explore-mode-time" aria-pressed="true">Over time</button><button id="explore-mode-xy" aria-pressed="false">Y against X</button></div>
+          <div class="explore-actions"><button class="button" id="explore-png" disabled>PNG ↓</button><button class="button" id="explore-csv" disabled>CSV ↓</button></div>
+        </div>
+        <fieldset class="explore-vars" id="explore-vars"><legend>Variables <span>(up to 6, one panel each)</span></legend></fieldset>
+        <div class="explore-xy" id="explore-xy" hidden><label>X axis <select id="explore-x" aria-label="Variable on the X axis"></select></label><label>Y axis <select id="explore-y" aria-label="Variable on the Y axis"></select></label></div>
+        <div class="explore-chart" id="explore-wrap"><canvas id="explore-chart" role="img" aria-label="Plot of the selected session and variables"></canvas><div class="chart-empty" id="explore-empty">Choose a session to plot</div><div id="explore-tooltip" class="explore-tooltip" hidden></div></div>
+        <div class="panel-foot"><span id="explore-caption">Per-capture values · time in UTC · gaps are not joined</span><span id="explore-count"></span></div>
+      </div>
     </section>
 
     <section id="experiment" class="experiment panel">

@@ -4,6 +4,7 @@ import asyncio
 from contextlib import asynccontextmanager
 import ipaddress
 import json
+import logging
 from pathlib import Path
 import secrets
 import threading
@@ -17,7 +18,9 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import Settings
 from .service import Recorder
-from .storage import utc_to_ns
+from .storage import PLOT_FIELDS, SessionActive, utc_to_ns
+
+logger = logging.getLogger(__name__)
 
 
 NPZ_LIMIT_BYTES = 1_500_000_000  # session.npz is assembled in memory
@@ -123,8 +126,8 @@ def create_app(settings: Settings | None = None, recorder: Recorder | None = Non
         return {"allowed": allowed, "reason": reason, "token_available": bool(settings.control_token),
                 "logging": recorder.snapshot()["status"]["logging"]}
 
-    @app.post("/api/logging")
-    def set_logging(body: LoggingRequest, request: Request):
+    def require_control(request: Request):
+        """Same rules for every change: custom header, same-site origin, this PC or the control token."""
         if request.headers.get(CONTROL_HEADER) != "1":
             raise HTTPException(403, "Missing control header")
         origin = request.headers.get("origin")
@@ -133,8 +136,42 @@ def create_app(settings: Settings | None = None, recorder: Recorder | None = Non
         allowed, reason = control_access(request, settings.control_token)
         if not allowed:
             raise HTTPException(403, reason)
+
+    @app.post("/api/logging")
+    def set_logging(body: LoggingRequest, request: Request):
+        require_control(request)
         recorder.set_logging(body.enabled)
         return recorder.snapshot()["status"]
+
+    @app.delete("/api/sessions/{session_id}")
+    def delete_session(session_id: str, request: Request):
+        require_control(request)
+        try:
+            deleted = recorder.store.delete_session(session_id, active_id=recorder.snapshot()["status"]["session_id"])
+        except SessionActive:
+            raise HTTPException(409, "This session is still recording; stop logging first")
+        if deleted is None:
+            raise HTTPException(404, "Recording session not found")
+        logger.info("Deleted session %s (%d captures)", session_id, deleted)
+        return {"deleted": session_id, "captures": deleted}
+
+    @app.get("/api/plot-fields")
+    def plot_fields():
+        return {name: {"label": label, "unit": unit} for name, (label, unit) in PLOT_FIELDS.items()}
+
+    @app.get("/api/sessions/{session_id}/series")
+    def series(session_id: str, fields: str = Query(..., max_length=500), points: int = Query(2000, ge=10, le=5000)):
+        session = get_session(session_id)
+        names = [f for f in fields.split(",") if f]
+        unknown = [f for f in names if f not in PLOT_FIELDS]
+        if not names or len(names) > 6 or unknown:
+            raise HTTPException(422, f"Choose 1 to 6 of: {', '.join(PLOT_FIELDS)}" + (f" (unknown: {', '.join(unknown)})" if unknown else ""))
+        calibration = session["metadata"]["settings"]["calibration"]
+        position_unit = "mm" if calibration.get("x_scale_mm") is not None else \
+            "ratio" if calibration.get("position_model", "difference_over_sum") == "difference_over_sum" else "V"
+        data = recorder.store.series(session_id, names, points)
+        units = {f: PLOT_FIELDS[f][1] if PLOT_FIELDS[f][1] is not None else position_unit for f in names}
+        return {"session_id": session_id, "mode": session["mode"], "units": units, **data}
 
     @app.get("/api/history")
     def history(limit: int = Query(600, ge=1, le=7200)):

@@ -36,6 +36,23 @@ MINUTE_COLUMNS = [
     "scintillation_index_mean", "scintillation_index_median", "wander_rms_mean", "sum_mean_v",
     "valid_fraction_mean", "wind_mean_ms", "air_temp_c", "rh_pct", "pressure_hpa",
 ]
+# Per-capture values the dashboard can plot: name -> (label, unit; None = position_unit of the session).
+PLOT_FIELDS = {
+    "x_mean_v": ("X mean", "V"), "y_mean_v": ("Y mean", "V"), "sum_mean_v": ("SUM mean", "V"),
+    "x_std_v": ("X std", "V"), "y_std_v": ("Y std", "V"), "sum_std_v": ("SUM std", "V"),
+    "position_x": ("Position X", None), "position_y": ("Position Y", None), "wander_rms": ("Wander RMS", None),
+    "scintillation_index": ("Scintillation index", ""), "valid_fraction": ("Valid fraction", ""),
+    "clipped_fraction": ("Clipped fraction", ""), "saturated_fraction": ("Saturated fraction", ""),
+    "wind_mean_ms": ("Wind mean", "m/s"), "wind_ti": ("Turbulence intensity", ""),
+    "air_temp_c": ("Air temperature", "°C"), "rh_pct": ("Relative humidity", "%"),
+    "pressure_hpa": ("Pressure", "hPa"), "light_v": ("Light", "V"),
+}
+
+
+class SessionActive(Exception):
+    pass
+
+
 WEATHER_COLUMNS = [
     "kind", "host_received_utc", "host_received_ns", "source", "pico_t_ms",
     "v_adc", "i_ma", "wind_ms", "clip",
@@ -236,6 +253,68 @@ class Store:
             result["metadata"] = json.loads(result["metadata"])
             result["export_through_capture_id"] = db.execute("SELECT COALESCE(MAX(id),0) FROM captures WHERE session_id=?", (session_id,)).fetchone()[0]
             return result
+
+    def delete_session(self, session_id, active_id=None) -> int | None:
+        """Permanently delete a finished session and its captures. Returns captures deleted, or None if unknown.
+
+        Weather samples are a continuous time series shared by neighbouring sessions and are kept.
+        SQLite reuses the freed pages for new data; the file only shrinks after VACUUM.
+        """
+        with self.connect() as db:
+            row = db.execute("SELECT status FROM sessions WHERE id=?", (session_id,)).fetchone()
+            if row is None:
+                return None
+            if session_id == active_id or row["status"] == "recording":
+                raise SessionActive(session_id)
+            deleted = db.execute("DELETE FROM captures WHERE session_id=?", (session_id,)).rowcount
+            db.execute("DELETE FROM sessions WHERE id=?", (session_id,))
+        return deleted
+
+    def series(self, session_id, fields, points=2000):
+        """Per-capture values for plotting, binned to at most `points` (mean, min, max per bin)."""
+        values = {f: [] for f in fields}
+        times, after = [], 0
+        while True:  # Bounded batches; no long read transaction
+            with self.connect() as db:
+                rows = db.execute("SELECT id, summary FROM captures WHERE session_id=? AND id>? ORDER BY id LIMIT 2000",
+                                  (session_id, after)).fetchall()
+            if not rows:
+                break
+            after = rows[-1]["id"]
+            for row in rows:
+                data = json.loads(row["summary"])
+                times.append(data["host_received_ns"])
+                for f in fields:
+                    v = data.get(f)
+                    values[f].append(float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else np.nan)
+        n = len(times)
+        t = np.array(times, dtype=np.int64)
+        # Bins never straddle a long break (PC asleep, app stopped): each run of captures is binned
+        # separately, in proportion to its length, so no averaged point lands inside a gap.
+        if n:
+            steps = np.diff(t)
+            typical = float(np.median(steps)) if len(steps) else 1e9
+            breaks = np.flatnonzero(steps > max(300e9, 10 * typical)) + 1
+            runs = np.split(np.arange(n), breaks)
+            edges = [0]
+            for run in runs:
+                bins = min(len(run), max(1, round(points * len(run) / n)))
+                edges += [int(e) for e in np.linspace(run[0], run[-1] + 1, bins + 1)[1:]]
+            edges = np.array(edges)
+        else:
+            edges = np.array([0])
+        def reduce(a, fn):
+            out = []
+            for lo, hi in zip(edges[:-1], edges[1:]):
+                chunk = a[lo:hi]
+                out.append(None if not np.isfinite(chunk).any() else float(fn(chunk[np.isfinite(chunk)])))
+            return out
+        result = {"captures": n, "binned": n > points,
+                  "t_ns": [int(t[lo:hi].mean()) for lo, hi in zip(edges[:-1], edges[1:])], "fields": {}}
+        for f in fields:
+            a = np.array(values[f], dtype=float)
+            result["fields"][f] = {"mean": reduce(a, np.mean), "min": reduce(a, np.min), "max": reduce(a, np.max)}
+        return result
 
     def history(self, limit=600):
         with self.connect() as db:

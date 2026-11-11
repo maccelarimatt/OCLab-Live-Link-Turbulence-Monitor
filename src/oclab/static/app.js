@@ -8,6 +8,8 @@ let config, latest, history = [], plotMode = "history", windowSeconds = 300, arc
 let lastEventAt = 0, connection, signalPoints = [], signalBounds, archiveBusy = false;
 let weather, windHistory = [];
 let control = {allowed: false}, loggingState = false, toggleBusy = false;
+const selectedSessions = new Map();  // id -> capture count, kept across archive refreshes
+let archiveItems = [];
 const tokenKey = "oclab-control-token";
 const ago = (s) => Number.isFinite(s) ? `${fmt(s, s < 10 ? 1 : 0)} s ago` : "no data";
 
@@ -257,6 +259,44 @@ async function loadControl() {
     if (!control.allowed && storedToken()) saveToken("");
   } catch (error) { control = {allowed: false, reason: "Logging control unavailable"}; }
   updateToggle();
+  // Deleting uses the same permission as the logging switch; public visitors never see it.
+  for (const el of document.querySelectorAll(".select-col")) el.hidden = !control.allowed;
+  updateDeleteButton();
+}
+
+function controlHeaders(json = false) {
+  const headers = {"X-OCLab-Control": "1"};
+  if (json) headers["Content-Type"] = "application/json";
+  if (storedToken()) headers["X-Control-Token"] = storedToken();
+  return headers;
+}
+
+function updateDeleteButton() {
+  const button = $("delete-sessions"), n = selectedSessions.size;
+  button.hidden = !control.allowed;
+  button.disabled = n === 0;
+  button.textContent = n ? `Delete selected (${n})` : "Delete selected";
+  const boxes = archiveItems.filter((item) => item.status !== "recording");
+  $("select-all-sessions").checked = boxes.length > 0 && boxes.every((item) => selectedSessions.has(item.id));
+}
+
+async function deleteSelected() {
+  const ids = [...selectedSessions.keys()];
+  const captures = [...selectedSessions.values()].reduce((a, b) => a + b, 0);
+  if (!ids.length || !window.confirm(`Permanently delete ${ids.length} session${ids.length > 1 ? "s" : ""} (${count(captures)} captures)?\n\nThis cannot be undone. Weather records are kept.`)) return;
+  $("delete-sessions").disabled = true;
+  const failed = [];
+  for (const id of ids) {
+    try {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(id)}`, {method: "DELETE", headers: controlHeaders(), signal: AbortSignal.timeout(60000)});
+      if (response.ok || response.status === 404) selectedSessions.delete(id);
+      else failed.push(`${id}: ${(await response.json()).detail || response.status}`);
+    } catch (error) { failed.push(`${id}: ${error.message}`); }
+  }
+  if (failed.length) window.alert(`Not deleted:\n${failed.join("\n")}`);
+  archiveOffset = 0;
+  await loadArchive();
+  loadExploreSessions();
 }
 
 function updateToggle() {
@@ -280,8 +320,7 @@ async function toggleLogging() {
   if (!enable && !window.confirm("Stop saving data? The current session will be closed; the live view continues.")) return;
   toggleBusy = true; updateToggle();
   try {
-    const headers = {"Content-Type": "application/json", "X-OCLab-Control": "1"};
-    if (storedToken()) headers["X-Control-Token"] = storedToken();
+    const headers = controlHeaders(true);
     const response = await fetch("/api/logging", {method: "POST", headers, body: JSON.stringify({enabled: enable}), signal: AbortSignal.timeout(15000)});
     const body = await response.json();
     if (!response.ok) throw new Error(body.detail || `request failed (${response.status})`);
@@ -305,13 +344,21 @@ async function loadArchive() {
   $("refresh-archive").disabled = true;
   try {
     const data = await fetchJSON(`/api/sessions?limit=8&offset=${archiveOffset}`);
+    archiveItems = data.items;
     const body = $("sessions-body"); body.replaceChildren();
     if (!data.items.length) {
       const row = document.createElement("tr");
-      cell(row, "No recordings yet. Sessions appear when the first waveform is saved.", "empty-table").colSpan = 6; body.append(row);
+      cell(row, "No recordings yet. Sessions appear when the first waveform is saved.", "empty-table").colSpan = 7; body.append(row);
     }
     for (const item of data.items) {
       const row = document.createElement("tr");
+      const box = document.createElement("input");
+      box.type = "checkbox"; box.checked = selectedSessions.has(item.id);
+      box.disabled = item.status === "recording";
+      box.title = box.disabled ? "Still recording: stop logging before deleting" : "Select to delete";
+      box.setAttribute("aria-label", `Select session ${item.id}`);
+      box.onchange = () => { if (box.checked) selectedSessions.set(item.id, item.capture_count); else selectedSessions.delete(item.id); updateDeleteButton(); };
+      cell(row, box, "select-col").hidden = !control.allowed;
       const started = cell(row, new Date(item.started_utc).toISOString().slice(0, 19).replace("T", " "));
       const id = document.createElement("small"); id.textContent = item.id; started.append(id);
       cell(row, item.mode === "demo" ? "Demo" : "Hardware", `table-source ${item.mode}`);
@@ -322,8 +369,13 @@ async function loadArchive() {
         const a = document.createElement("a"); a.href = `/api/sessions/${encodeURIComponent(item.id)}/${file}`; a.textContent = label;
         a.setAttribute("aria-label", `Download ${file} for session ${item.id}`); a.download = `${item.id}-${file}`; links.append(a);
       }
+      const plot = document.createElement("button");
+      plot.className = "plot-link"; plot.textContent = "Plot ↘"; plot.setAttribute("aria-label", `Plot session ${item.id}`);
+      plot.onclick = () => openInExplorer(item.id);
+      links.append(plot);
       cell(row, links); body.append(row);
     }
+    updateDeleteButton();
     $("archive-count").textContent = data.total ? `${archiveOffset + 1}–${archiveOffset + data.items.length} of ${count(data.total)} sessions · times in UTC` : "0 sessions";
     $("previous-page").disabled = archiveOffset === 0;
     $("next-page").disabled = archiveOffset + data.items.length >= data.total;
@@ -346,6 +398,15 @@ $("waveform-tab").onclick = () => setPlot("waveform");
 $("time-window").onchange = (event) => { windowSeconds = Number(event.target.value); drawCharts(); };
 $("refresh-archive").onclick = loadArchive;
 $("logging-toggle").onclick = toggleLogging;
+$("delete-sessions").onclick = deleteSelected;
+$("select-all-sessions").onchange = (event) => {
+  for (const item of archiveItems) {
+    if (item.status === "recording") continue;
+    if (event.target.checked) selectedSessions.set(item.id, item.capture_count); else selectedSessions.delete(item.id);
+  }
+  for (const box of document.querySelectorAll("#sessions-body input[type=checkbox]:not(:disabled)")) box.checked = event.target.checked;
+  updateDeleteButton();
+};
 $("previous-page").onclick = () => { if (!archiveBusy) { archiveOffset = Math.max(0, archiveOffset - 8); loadArchive(); } };
 $("next-page").onclick = () => { if (!archiveBusy) { archiveOffset += 8; loadArchive(); } };
 $("signal-chart").addEventListener("pointermove", (event) => {
@@ -367,6 +428,306 @@ setInterval(() => {
 setInterval(loadArchive, 15000);
 window.addEventListener("pagehide", () => connection?.close());
 window.addEventListener("pageshow", (event) => { if (event.persisted) connect(); });
+
+// ---- Explore recorded data --------------------------------------------------
+// One panel per variable on a shared time axis (never two y-scales on one axis),
+// or a scatter of one variable against another.
+const EXPLORE_COLOUR = "#4778aa", EXPLORE_BAND = "rgba(71, 120, 170, 0.16)";
+let plotFields = {}, exploreLayout = null, exploreWidth = 0;
+const explore = {mode: "time", vars: ["x_mean_v", "y_mean_v", "sum_mean_v"], x: "position_x", y: "position_y", data: null, request: 0};
+
+function fieldLabel(name, units) {
+  const unit = units?.[name] ?? plotFields[name]?.unit;
+  return `${plotFields[name]?.label || name}${unit ? ` (${unit})` : ""}`;
+}
+
+function tick(value, span) {
+  const digits = Math.max(0, Math.min(5, Math.ceil(-Math.log10(span || 1)) + 2));
+  return value.toFixed(digits);
+}
+
+function saveFile(blob, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+async function loadExploreSessions() {
+  try {
+    const data = await fetchJSON("/api/sessions?limit=100");
+    const select = $("explore-session"), current = select.value;
+    select.replaceChildren();
+    if (!data.items.length) select.append(new Option("No recorded sessions yet", ""));
+    for (const item of data.items) {
+      const start = new Date(item.started_utc).toISOString().slice(0, 16).replace("T", " ");
+      select.append(new Option(`${start} UTC · ${item.mode === "demo" ? "Demo" : "Hardware"} · ${count(item.capture_count)} captures · ${item.status}`, item.id));
+    }
+    select.value = [...select.options].some((o) => o.value === current) ? current : select.options[0].value;
+    if (select.value !== current || !explore.data) loadExplore();
+  } catch (error) { $("explore-empty").textContent = "Could not load the session list"; }
+}
+
+function openInExplorer(id) {
+  const select = $("explore-session");
+  if (![...select.options].some((o) => o.value === id)) select.append(new Option(id, id));
+  select.value = id;
+  loadExplore();
+  $("explore").scrollIntoView({block: "start"});
+}
+
+function buildVarChips() {
+  const box = $("explore-vars");
+  box.querySelectorAll("label").forEach((label) => label.remove());
+  for (const [name, field] of Object.entries(plotFields)) {
+    const label = document.createElement("label"), input = document.createElement("input");
+    label.className = "var-chip"; input.type = "checkbox"; input.value = name; input.checked = explore.vars.includes(name);
+    input.onchange = () => {
+      if (input.checked && explore.vars.length >= 6) { input.checked = false; return; }
+      explore.vars = input.checked ? [...explore.vars, name] : explore.vars.filter((v) => v !== name);
+      loadExplore();
+    };
+    label.append(input, field.label); box.append(label);
+  }
+  for (const id of ["explore-x", "explore-y"]) {
+    const select = $(id); select.replaceChildren();
+    for (const [name, field] of Object.entries(plotFields)) select.append(new Option(field.label, name));
+  }
+  $("explore-x").value = explore.x; $("explore-y").value = explore.y;
+}
+
+function setExploreMode(mode) {
+  explore.mode = mode;
+  for (const [id, on] of [["explore-mode-time", mode === "time"], ["explore-mode-xy", mode === "xy"]]) {
+    $(id).classList.toggle("selected", on); $(id).setAttribute("aria-pressed", String(on));
+  }
+  $("explore-vars").hidden = mode !== "time"; $("explore-xy").hidden = mode !== "xy";
+  loadExplore();
+}
+
+async function loadExplore() {
+  const session = $("explore-session").value;
+  const fields = explore.mode === "time" ? explore.vars : [...new Set([explore.x, explore.y])];
+  const ticket = ++explore.request;
+  explore.data = null;
+  if (!session || !fields.length) { drawExplore(); return; }
+  $("explore-empty").textContent = "Loading…"; $("explore-empty").hidden = false;
+  try {
+    const data = await fetchJSON(`/api/sessions/${encodeURIComponent(session)}/series?fields=${fields.join(",")}&points=2000`);
+    if (ticket !== explore.request) return;  // Superseded by a newer choice
+    explore.data = data;
+  } catch (error) {
+    if (ticket !== explore.request) return;
+    $("explore-empty").textContent = `Could not load the session (${error.message})`;
+    return;
+  }
+  drawExplore();
+}
+
+function exploreSurface(height) {
+  $("explore-chart").style.height = `${height}px`;
+  const s = surface("explore-chart");
+  s.ctx.fillStyle = "#ffffff"; s.ctx.fillRect(0, 0, s.w, s.h);  // Opaque for PNG export
+  return s;
+}
+
+function drawExplore(hover = null) {
+  const d = explore.data;
+  const fields = !d ? [] : explore.mode === "time" ? explore.vars.filter((f) => d.fields[f]) : [explore.x, explore.y];
+  const ready = Boolean(d && d.t_ns.length && fields.length && fields.every((f) => d.fields[f]));
+  $("explore-png").disabled = $("explore-csv").disabled = !ready;
+  $("explore-count").textContent = d ? `${count(d.captures)} captures${d.binned ? ` · averaged into ${count(d.t_ns.length)} points (band = min to max)` : ""}` : "";
+  if (!ready) {
+    exploreSurface(260); exploreLayout = null;
+    if (d) $("explore-empty").textContent = !d.t_ns.length ? "This session has no captures" : "Choose at least one variable";
+    else if (!$("explore-session").value) $("explore-empty").textContent = "Choose a session to plot";
+    $("explore-empty").hidden = false;
+    return;
+  }
+  $("explore-empty").hidden = true;
+  if (explore.mode === "time") drawExploreTime(d, fields, hover); else drawExploreXY(d, hover);
+}
+
+function drawExploreTime(d, fields, hover) {
+  const rowH = 128, gap = 22, margin = {l: 62, r: 18, t: 6, b: 30};
+  const {ctx, w, h} = exploreSurface(margin.t + fields.length * (rowH + gap) - gap + margin.b);
+  const t = d.t_ns.map((x) => x / 1e9);
+  const steps = t.slice(1).map((x, i) => x - t[i]).sort((a, b) => a - b);
+  const typical = steps[Math.floor(steps.length / 2)] || 1;
+  const gapLimit = 5 * typical;
+  const broken = (i) => i > 0 && t[i] - t[i - 1] > gapLimit;
+  // Long breaks (PC asleep, app stopped) collapse to a narrow strip so each recording stretch stays readable.
+  const GAP_PX = 34, segments = [];
+  let first = 0;
+  for (let i = 1; i <= t.length; i++) {
+    if (i === t.length || t[i] - t[i - 1] > Math.max(300, 10 * typical)) { segments.push([first, i - 1]); first = i; }
+  }
+  const width = w - margin.l - margin.r - GAP_PX * (segments.length - 1);
+  const total = segments.reduce((a, [a0, a1]) => a + Math.max(t[a1] - t[a0], typical), 0);
+  let cursor = margin.l;
+  const spans = segments.map(([a0, a1]) => {
+    const px = width * Math.max(t[a1] - t[a0], typical) / total, span = {t0: t[a0], t1: t[a1], x0: cursor, x1: cursor + px};
+    cursor += px + GAP_PX;
+    return span;
+  });
+  const X = (x) => {
+    const span = spans.find((sp) => x <= sp.t1) || spans[spans.length - 1];
+    return span.t1 === span.t0 ? (span.x0 + span.x1) / 2 : span.x0 + (x - span.t0) / (span.t1 - span.t0) * (span.x1 - span.x0);
+  };
+  exploreLayout = {mode: "time", t, X, fields};
+  spans.slice(1).forEach((span, k) => {  // Shade and label each collapsed gap
+    const x0 = spans[k].x1 + 4, x1 = span.x0 - 4, hours = (span.t0 - spans[k].t1) / 3600;
+    ctx.fillStyle = "#f1f3f2"; ctx.fillRect(x0, margin.t, x1 - x0, h - margin.t - margin.b);
+    ctx.save(); ctx.translate((x0 + x1) / 2 + 3, margin.t + 40); ctx.rotate(-Math.PI / 2);
+    ctx.fillStyle = "#8a969b"; ctx.textAlign = "right"; ctx.font = "9px Arial";
+    ctx.fillText(hours >= 1 ? `${hours.toFixed(1)} h gap` : `${Math.round(hours * 60)} min gap`, 0, 0); ctx.restore();
+  });
+  ctx.font = "9px Arial";
+  fields.forEach((f, row) => {
+    const top = margin.t + row * (rowH + gap), s = d.fields[f];
+    ctx.fillStyle = "#1a3142"; ctx.textAlign = "left"; ctx.font = "10px Arial";
+    ctx.fillText(fieldLabel(f, d.units), margin.l, top + 9); ctx.font = "9px Arial";
+    const lows = s.min.filter(Number.isFinite), highs = s.max.filter(Number.isFinite);
+    if (!lows.length) { ctx.fillStyle = "#8a969b"; ctx.fillText("No values recorded", margin.l, top + 40); return; }
+    let lo = Math.min(...lows), hi = Math.max(...highs);
+    if (hi - lo < 1e-12) { const pad = Math.abs(hi) * 0.05 || 0.5; lo -= pad; hi += pad; }
+    const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+    const plotTop = top + 16, plotH = rowH - 16;
+    const Y = (v) => plotTop + (hi - v) / (hi - lo) * plotH;
+    for (let i = 0; i <= 2; i++) {
+      const v = lo + (hi - lo) * i / 2, y = Y(v);
+      ctx.strokeStyle = "#e9eded"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(margin.l, y); ctx.lineTo(w - margin.r, y); ctx.stroke();
+      ctx.fillStyle = "#8a969b"; ctx.textAlign = "right"; ctx.fillText(tick(v, hi - lo), margin.l - 8, y + 3);
+    }
+    if (d.binned) {  // min-max band per run of points without gaps
+      ctx.fillStyle = EXPLORE_BAND;
+      let run = [];
+      const flush = () => {
+        if (run.length > 1) {
+          ctx.beginPath();
+          run.forEach((i, k) => (k ? ctx.lineTo : ctx.moveTo).call(ctx, X(t[i]), Y(s.max[i])));
+          [...run].reverse().forEach((i) => ctx.lineTo(X(t[i]), Y(s.min[i])));
+          ctx.closePath(); ctx.fill();
+        }
+        run = [];
+      };
+      t.forEach((_, i) => { if (broken(i) || !Number.isFinite(s.min[i])) flush(); if (Number.isFinite(s.min[i])) run.push(i); });
+      flush();
+    }
+    ctx.strokeStyle = EXPLORE_COLOUR; ctx.lineWidth = 1.5; ctx.beginPath();
+    let pen = false;
+    s.mean.forEach((v, i) => {
+      if (!Number.isFinite(v)) { pen = false; return; }
+      if (!pen || broken(i)) ctx.moveTo(X(t[i]), Y(v)); else ctx.lineTo(X(t[i]), Y(v));
+      pen = true;
+    });
+    ctx.stroke();
+    // A value with no drawable neighbour would be invisible as a line: show it as a dot.
+    ctx.fillStyle = EXPLORE_COLOUR;
+    s.mean.forEach((v, i) => {
+      const joined = (j) => j >= 0 && j < t.length && Number.isFinite(s.mean[j]) && !broken(Math.max(i, j));
+      if (Number.isFinite(v) && !joined(i - 1) && !joined(i + 1)) { ctx.beginPath(); ctx.arc(X(t[i]), Y(v), 2.5, 0, Math.PI * 2); ctx.fill(); }
+    });
+    if (hover !== null && Number.isFinite(s.mean[hover])) {
+      ctx.fillStyle = EXPLORE_COLOUR; ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(X(t[hover]), Y(s.mean[hover]), 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    }
+  });
+  const axisY = h - margin.b + 18, multiDay = t[t.length - 1] - t[0] > 86400;
+  const stamp = (x) => new Date(x * 1000).toISOString().slice(multiDay ? 5 : 11, 19).replace("T", " ");
+  ctx.fillStyle = "#8a969b";
+  spans.forEach((span, k) => {  // Start and end of each stretch, plus a middle tick when there is room
+    const room = span.x1 - span.x0;
+    if (k === 0 || room > 60) { ctx.textAlign = "left"; ctx.fillText(stamp(span.t0), span.x0, axisY); }
+    if (room > 150) { ctx.textAlign = "right"; ctx.fillText(stamp(span.t1), span.x1, axisY); }
+    if (room > 420) { ctx.textAlign = "center"; ctx.fillText(stamp((span.t0 + span.t1) / 2), (span.x0 + span.x1) / 2, axisY); }
+  });
+  if (hover !== null) {
+    ctx.strokeStyle = "#9aa6ab"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(X(t[hover]), margin.t); ctx.lineTo(X(t[hover]), h - margin.b + 4); ctx.stroke();
+  }
+}
+
+function drawExploreXY(d, hover) {
+  const margin = {l: 64, r: 22, t: 14, b: 44};
+  const box = $("explore-wrap").getBoundingClientRect();
+  const {ctx, w, h} = exploreSurface(Math.max(300, Math.min(480, box.width * 0.55)));
+  const xs = d.fields[explore.x].mean, ys = d.fields[explore.y].mean;
+  const idx = xs.map((_, i) => i).filter((i) => Number.isFinite(xs[i]) && Number.isFinite(ys[i]));
+  ctx.font = "9px Arial";
+  if (!idx.length) { exploreLayout = null; ctx.fillStyle = "#8a969b"; ctx.textAlign = "center"; ctx.fillText("No captures have both values", w / 2, h / 2); return; }
+  const range = (a) => { let lo = Math.min(...a), hi = Math.max(...a); if (hi - lo < 1e-12) { const p = Math.abs(hi) * 0.05 || 0.5; lo -= p; hi += p; } const p = (hi - lo) * 0.06; return [lo - p, hi + p]; };
+  const [xlo, xhi] = range(idx.map((i) => xs[i])), [ylo, yhi] = range(idx.map((i) => ys[i]));
+  const X = (v) => margin.l + (v - xlo) / (xhi - xlo) * (w - margin.l - margin.r);
+  const Y = (v) => margin.t + (yhi - v) / (yhi - ylo) * (h - margin.t - margin.b);
+  for (let i = 0; i <= 4; i++) {
+    const vx = xlo + (xhi - xlo) * i / 4, vy = ylo + (yhi - ylo) * i / 4;
+    ctx.strokeStyle = "#e9eded"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(X(vx), margin.t); ctx.lineTo(X(vx), h - margin.b); ctx.moveTo(margin.l, Y(vy)); ctx.lineTo(w - margin.r, Y(vy)); ctx.stroke();
+    ctx.fillStyle = "#8a969b"; ctx.textAlign = "center"; ctx.fillText(tick(vx, xhi - xlo), X(vx), h - margin.b + 14);
+    ctx.textAlign = "right"; ctx.fillText(tick(vy, yhi - ylo), margin.l - 8, Y(vy) + 3);
+  }
+  ctx.fillStyle = "#52616c"; ctx.font = "10px Arial"; ctx.textAlign = "center";
+  ctx.fillText(fieldLabel(explore.x, d.units), margin.l + (w - margin.l - margin.r) / 2, h - 8);
+  ctx.save(); ctx.translate(14, margin.t + (h - margin.t - margin.b) / 2); ctx.rotate(-Math.PI / 2); ctx.fillText(fieldLabel(explore.y, d.units), 0, 0); ctx.restore();
+  ctx.fillStyle = EXPLORE_COLOUR; ctx.globalAlpha = 0.45;
+  for (const i of idx) { ctx.beginPath(); ctx.arc(X(xs[i]), Y(ys[i]), 2.5, 0, Math.PI * 2); ctx.fill(); }
+  ctx.globalAlpha = 1;
+  if (hover !== null) {
+    ctx.fillStyle = EXPLORE_COLOUR; ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(X(xs[hover]), Y(ys[hover]), 5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  }
+  exploreLayout = {mode: "xy", points: idx.map((i) => [X(xs[i]), Y(ys[i]), i])};
+}
+
+function exploreHover(event) {
+  const d = explore.data;
+  if (!exploreLayout || !d) return;
+  const rect = event.target.getBoundingClientRect(), mx = event.clientX - rect.left, my = event.clientY - rect.top;
+  let index = null;
+  if (exploreLayout.mode === "time") {
+    let best = Infinity;
+    exploreLayout.t.forEach((x, i) => { const dist = Math.abs(exploreLayout.X(x) - mx); if (dist < best) { best = dist; index = i; } });
+  } else {
+    let best = 14 ** 2;  // Hit radius larger than the mark
+    for (const [px, py, i] of exploreLayout.points) { const dist = (px - mx) ** 2 + (py - my) ** 2; if (dist < best) { best = dist; index = i; } }
+  }
+  drawExplore(index);
+  if (index === null) { $("explore-tooltip").hidden = true; return; }
+  const fields = exploreLayout.mode === "time" ? exploreLayout.fields : [explore.x, explore.y];
+  const lines = [`${new Date(d.t_ns[index] / 1e6).toISOString().slice(0, 19).replace("T", " ")} UTC`];
+  for (const f of [...new Set(fields)]) {
+    const s = d.fields[f], v = s.mean[index];
+    lines.push(`${fieldLabel(f, d.units)}: ${Number.isFinite(v) ? v.toPrecision(5) : "—"}${d.binned && Number.isFinite(v) ? `  [${s.min[index].toPrecision(4)} to ${s.max[index].toPrecision(4)}]` : ""}`);
+  }
+  $("explore-tooltip").textContent = lines.join("\n"); $("explore-tooltip").hidden = false;
+}
+
+function exploreCsv() {
+  const d = explore.data;
+  const fields = [...new Set(explore.mode === "time" ? explore.vars.filter((f) => d.fields[f]) : [explore.x, explore.y])];
+  const header = ["utc", "t_ns"];
+  for (const f of fields) header.push(f, ...(d.binned ? [`${f}_min`, `${f}_max`] : []));
+  const rows = d.t_ns.map((ns, i) => {
+    const row = [new Date(ns / 1e6).toISOString(), ns];
+    for (const f of fields) row.push(d.fields[f].mean[i] ?? "", ...(d.binned ? [d.fields[f].min[i] ?? "", d.fields[f].max[i] ?? ""] : []));
+    return row.join(",");
+  });
+  saveFile(new Blob([[header.join(","), ...rows].join("\r\n") + "\r\n"], {type: "text/csv"}), `${d.session_id}-${explore.mode === "time" ? "time" : "xy"}.csv`);
+}
+
+$("explore-session").onchange = loadExplore;
+$("explore-mode-time").onclick = () => setExploreMode("time");
+$("explore-mode-xy").onclick = () => setExploreMode("xy");
+$("explore-x").onchange = (event) => { explore.x = event.target.value; loadExplore(); };
+$("explore-y").onchange = (event) => { explore.y = event.target.value; loadExplore(); };
+$("explore-chart").addEventListener("pointermove", exploreHover);
+$("explore-chart").addEventListener("pointerleave", () => { $("explore-tooltip").hidden = true; drawExplore(); });
+$("explore-png").onclick = () => $("explore-chart").toBlob((blob) => saveFile(blob, `${explore.data.session_id}-${explore.mode === "time" ? "time" : "xy"}.png`));
+$("explore-csv").onclick = exploreCsv;
+new ResizeObserver(() => {
+  const width = $("explore-wrap").getBoundingClientRect().width;
+  if (Math.abs(width - exploreWidth) > 1) { exploreWidth = width; drawExplore(); }  // Width only: our height changes must not loop
+}).observe($("explore-wrap"));
 
 async function init() {
   drawCharts();
@@ -402,5 +763,11 @@ async function init() {
     drawWind();
   } catch (error) { console.error(error); }
   connect(); loadArchive(); loadControl();
+  try {
+    plotFields = await fetchJSON("/api/plot-fields");
+    buildVarChips();
+    setExploreMode("time");
+  } catch (error) { $("explore-empty").textContent = "Could not load plot options"; }
+  loadExploreSessions();
 }
 init();
