@@ -1,0 +1,2392 @@
+{
+ "exported_from_utc": "2026-11-11T17:39:55.064000+00:00",
+ "exported_through_utc": "2026-11-12T06:13:38.386000+00:00",
+ "totals": {
+  "sessions": 13,
+  "captures": 63248,
+  "stored_samples_per_channel": 101323296,
+  "weather_rows": 497454
+ },
+ "weather_station_header": {
+  "firmware": "pico-weather",
+  "version": "v3.2",
+  "wind": "10Hz",
+  "anemo": "4-20mA",
+  "shunt": "165.0ohm",
+  "range": "30.0m/s",
+  "zero": "3.72mA",
+  "light": "ldr",
+  "r_light": "1000ohm",
+  "baro": "BMP280",
+  "dht": "yes",
+  "pins": "wind:GP26,light:GP28,sda:GP20,scl:GP17,dht:GP21"
+ },
+ "sessions": [
+  {
+   "id": "20261111T174005Z-f55c28c4",
+   "started_utc": "2026-11-11T17:40:05.064+00:00",
+   "ended_utc": "2026-11-11T18:40:05.134+00:00",
+   "status": "complete",
+   "mode": "hardware",
+   "metadata": {
+    "schema_version": 3,
+    "application_version": "0.1.0",
+    "driver_repository": "https://github.com/maccelarimatt/Hantek6254BC-Linux-Driver",
+    "driver_revision": "be5663df4f0a93e96c039071f9502c698da678a1",
+    "settings": {
+     "mode": "hardware",
+     "capture_interval_s": 0,
+     "session_duration_s": 3600,
+     "minimum_free_disk_mb": 1024,
+     "retry_interval_s": 5,
+     "record_on_start": false,
+     "scope": {
+      "sample_rate": 25000,
+      "depth": 16384,
+      "volts_per_div": [
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ],
+      "probe_factors": [
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ],
+      "x_channel": 1,
+      "y_channel": 2,
+      "sum_channel": 3,
+      "store_rate_hz": 2500,
+      "bus": null,
+      "address": null
+     },
+     "calibration": {
+      "x_offset_v": 0.0,
+      "y_offset_v": 0.0,
+      "sum_offset_v": 0.0,
+      "minimum_sum_v": 0.5,
+      "position_model": "difference_over_sum",
+      "x_scale_mm": 5.0,
+      "y_scale_mm": 5.0,
+      "saturation_v": 4.0,
+      "notes": "Thorlabs PDP90A lateral-effect PSD, scales from the manual (Lx = Ly = 10 mm). Position displacement error +/-250 um per the manual; not yet verified against a translation stage."
+     },
+     "experiment": {
+      "title": "Live laser link",
+      "institution": "University of the Witwatersrand",
+      "laboratory": "Optical Communications Lab",
+      "laser": "CW532-005",
+      "wavelength_nm": 532.0,
+      "one_way_distance_m": 150.0,
+      "detector": "PDP90A",
+      "location": "Johannesburg, South Africa",
+      "data_license": "Not specified \u2014 contact the lab for reuse terms",
+      "contact": ""
+     },
+     "weather": {
+      "enabled": true,
+      "port": null,
+      "baud": 115200,
+      "association_window_s": 10.0,
+      "stale_after_s": 5.0
+     }
+    },
+    "time_basis": "UTC host call-start and receive timestamps; sample time is relative within each burst. No hardware UTC timestamp. Bursts are not contiguous.",
+    "statistics": "Voltage mean and population std use all samples. Position mean and radial RMS about the burst centroid use only unclipped samples with corrected SUM >= minimum_sum_v. scintillation_index = var(SUM)/mean(SUM)^2 of the stored band-limited series over valid stored samples; it includes detector and scope noise.",
+    "decimation": {
+     "factor": 10,
+     "taps": 365,
+     "stored": 1602,
+     "bandwidth_hz": 1000.0,
+     "t0_s": 0.00728,
+     "store_rate_hz": 2500,
+     "filter": "Linear-phase Kaiser FIR, unity DC gain, flat to 0.4 x store rate, >= 60 dB attenuation from 0.5 x store rate; valid convolution only (no edge transients)."
+    },
+    "raw_format": "Per-capture NPZ: codes (4,M) int16 = scope ADC codes x 64 about mid-scale after anti-alias filtering and decimation to store_rate_hz; clipped (M) bool, true where any mapped X/Y/SUM sample under the filter reached the ADC rails; t0_s = time of stored sample 0 after the burst's first scope sample. Volts = codes x volts_per_div x probe_factor / (31 x 64). No offset correction applied to archived voltage columns.",
+    "weather": {
+     "enabled": true,
+     "source": "hardware",
+     "device": {
+      "description": "Raspberry Pi Pico W weather station, USB CDC serial",
+      "usb_vid": "0x2E8A",
+      "port": "/dev/ttyACM0",
+      "configured_port": null,
+      "baud": 115200
+     },
+     "header": {
+      "firmware": "pico-weather",
+      "version": "v3.2",
+      "wind": "10Hz",
+      "anemo": "4-20mA",
+      "shunt": "165.0ohm",
+      "range": "30.0m/s",
+      "zero": "3.72mA",
+      "light": "ldr",
+      "r_light": "1000ohm",
+      "baro": "BMP280",
+      "dht": "yes",
+      "pins": "wind:GP26,light:GP28,sda:GP20,scl:GP17,dht:GP21"
+     },
+     "header_note": "Parsed from the firmware's '# ...' header line. If it arrives after the session starts it is filled in when the session ends; null if none was received (for example, the Pico booted before the recorder connected). Every header seen is stored in the weather_headers table.",
+     "line_format": {
+      "W": "W,t_ms,v_adc,i_ma,wind_ms,clip (10 Hz)",
+      "E": "E,t_ms,dht_c,dht_rh,baro_hpa,baro_c,light_v,light_x[,baro_rh] (1 Hz; baro_rh from firmware v3.1)"
+     },
+     "sensors": [
+      {
+       "quantity": "wind speed",
+       "sensor": "cup anemometer, 4-20 mA loop into the Pico ADC via a shunt",
+       "unit": "m/s",
+       "rate": "10 Hz",
+       "notes": "Slow response (distance constant about 2-3 m); not turbulence-resolving. clip=1 marks ADC saturation. wind = (i_ma - zero) / 16 mA x range, with the rest current in the header (zero=, firmware v3.2+; earlier firmware assumed 4.00 mA and read about 0.5 m/s low). Empty wind with i_ma below about 3.2 mA means the loop was open or unpowered. A level that stays flat well above zero is a frozen sensor, not wind."
+      },
+      {
+       "quantity": "air temperature",
+       "sensor": "BMP280 or BME280 (header baro=)",
+       "unit": "degC",
+       "rate": "1 Hz",
+       "notes": "Reference air-temperature sensor (air_temp_c). Mount in the sun shield."
+      },
+      {
+       "quantity": "station pressure",
+       "sensor": "BMP280 or BME280 (header baro=)",
+       "unit": "hPa",
+       "rate": "1 Hz",
+       "notes": "Not reduced to sea level."
+      },
+      {
+       "quantity": "relative humidity (baro_rh)",
+       "sensor": "BME280 (firmware v3.1+; empty with a BMP280)",
+       "unit": "%RH",
+       "rate": "1 Hz",
+       "notes": "About +/-3 %RH over 0-100 %RH. Used for rh_pct when the DHT11 has no reading. Measures the air at the sensor, so it reads low when the enclosure is warmer than the outside air."
+      },
+      {
+       "quantity": "temperature, relative humidity",
+       "sensor": "DHT11",
+       "unit": "degC, %RH",
+       "rate": "1 Hz",
+       "notes": "Integer resolution; accuracy about +/-2 degC and +/-5 %RH. Range about 20-90 %RH: firmware v3.0 sends an empty RH when the DHT11 reports 0 (below range)."
+      },
+      {
+       "quantity": "light",
+       "sensor": "LDR (light=ldr) or BPW34 photodiode (light=bpw34)",
+       "unit": "V; ohm (LDR) or uA (BPW34)",
+       "rate": "1 Hz",
+       "notes": "Uncalibrated relative light level."
+      }
+     ],
+     "association": {
+      "window_s": 10.0,
+      "stale_after_s": 5.0,
+      "rule": "Wind statistics use W samples with capture host_received_ns - window_s < host time <= host_received_ns; population std. wind_ti = std/mean, null when mean < 1 m/s. taylor_ok = mean >= 1 m/s and TI < 0.5. Environment fields are the latest E sample at or before the capture; weather_age_s is its age. weather_status: ok (wind and environment both within stale_after_s), stale, missing (no samples), disabled.",
+      "fields": {
+       "air_temp_c": "BMP280/BME280 temperature",
+       "dht_temp_c": "DHT11 temperature",
+       "rh_pct": "DHT11 relative humidity, or BME280 humidity (baro_rh) when the DHT11 has no reading (below about 20 %RH or failed)",
+       "rh_source": "DHT11 or BME280: which sensor rh_pct came from",
+       "pressure_hpa": "BMP280 station pressure",
+       "light_v": "light-sensor voltage",
+       "ldr_ohm": "firmware light_x: LDR resistance (ohm) when light=ldr, photocurrent (uA) when light=bpw34"
+      }
+     },
+     "caveats": [
+      "The cup anemometer has a distance constant of about 2-3 m, so wind statistics are not turbulence-resolving.",
+      "Cn2 is not measured by any of these sensors.",
+      "The BMP280 temperature is the air-temperature sensor; the DHT11 is accurate to about +/-2 degC and +/-5 %RH.",
+      "Empty firmware fields mean a missing sensor or failed read and are stored as null, never 0.",
+      "Times are host receive timestamps (time.time_ns on line receipt), including USB/serial latency. Pico t_ms is an auxiliary uptime counter that wraps."
+     ]
+    }
+   },
+   "capture_count": 5048,
+   "sample_count": 8086896
+  },
+  {
+   "id": "20261111T184005Z-1fb77e64",
+   "started_utc": "2026-11-11T18:40:05.137+00:00",
+   "ended_utc": "2026-11-11T19:40:05.260+00:00",
+   "status": "complete",
+   "mode": "hardware",
+   "metadata": {
+    "schema_version": 3,
+    "application_version": "0.1.0",
+    "driver_repository": "https://github.com/maccelarimatt/Hantek6254BC-Linux-Driver",
+    "driver_revision": "be5663df4f0a93e96c039071f9502c698da678a1",
+    "settings": {
+     "mode": "hardware",
+     "capture_interval_s": 0,
+     "session_duration_s": 3600,
+     "minimum_free_disk_mb": 1024,
+     "retry_interval_s": 5,
+     "record_on_start": false,
+     "scope": {
+      "sample_rate": 25000,
+      "depth": 16384,
+      "volts_per_div": [
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ],
+      "probe_factors": [
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ],
+      "x_channel": 1,
+      "y_channel": 2,
+      "sum_channel": 3,
+      "store_rate_hz": 2500,
+      "bus": null,
+      "address": null
+     },
+     "calibration": {
+      "x_offset_v": 0.0,
+      "y_offset_v": 0.0,
+      "sum_offset_v": 0.0,
+      "minimum_sum_v": 0.5,
+      "position_model": "difference_over_sum",
+      "x_scale_mm": 5.0,
+      "y_scale_mm": 5.0,
+      "saturation_v": 4.0,
+      "notes": "Thorlabs PDP90A lateral-effect PSD, scales from the manual (Lx = Ly = 10 mm). Position displacement error +/-250 um per the manual; not yet verified against a translation stage."
+     },
+     "experiment": {
+      "title": "Live laser link",
+      "institution": "University of the Witwatersrand",
+      "laboratory": "Optical Communications Lab",
+      "laser": "CW532-005",
+      "wavelength_nm": 532.0,
+      "one_way_distance_m": 150.0,
+      "detector": "PDP90A",
+      "location": "Johannesburg, South Africa",
+      "data_license": "Not specified \u2014 contact the lab for reuse terms",
+      "contact": ""
+     },
+     "weather": {
+      "enabled": true,
+      "port": null,
+      "baud": 115200,
+      "association_window_s": 10.0,
+      "stale_after_s": 5.0
+     }
+    },
+    "time_basis": "UTC host call-start and receive timestamps; sample time is relative within each burst. No hardware UTC timestamp. Bursts are not contiguous.",
+    "statistics": "Voltage mean and population std use all samples. Position mean and radial RMS about the burst centroid use only unclipped samples with corrected SUM >= minimum_sum_v. scintillation_index = var(SUM)/mean(SUM)^2 of the stored band-limited series over valid stored samples; it includes detector and scope noise.",
+    "decimation": {
+     "factor": 10,
+     "taps": 365,
+     "stored": 1602,
+     "bandwidth_hz": 1000.0,
+     "t0_s": 0.00728,
+     "store_rate_hz": 2500,
+     "filter": "Linear-phase Kaiser FIR, unity DC gain, flat to 0.4 x store rate, >= 60 dB attenuation from 0.5 x store rate; valid convolution only (no edge transients)."
+    },
+    "raw_format": "Per-capture NPZ: codes (4,M) int16 = scope ADC codes x 64 about mid-scale after anti-alias filtering and decimation to store_rate_hz; clipped (M) bool, true where any mapped X/Y/SUM sample under the filter reached the ADC rails; t0_s = time of stored sample 0 after the burst's first scope sample. Volts = codes x volts_per_div x probe_factor / (31 x 64). No offset correction applied to archived voltage columns.",
+    "weather": {
+     "enabled": true,
+     "source": "hardware",
+     "device": {
+      "description": "Raspberry Pi Pico W weather station, USB CDC serial",
+      "usb_vid": "0x2E8A",
+      "port": "/dev/ttyACM0",
+      "configured_port": null,
+      "baud": 115200
+     },
+     "header": {
+      "firmware": "pico-weather",
+      "version": "v3.2",
+      "wind": "10Hz",
+      "anemo": "4-20mA",
+      "shunt": "165.0ohm",
+      "range": "30.0m/s",
+      "zero": "3.72mA",
+      "light": "ldr",
+      "r_light": "1000ohm",
+      "baro": "BMP280",
+      "dht": "yes",
+      "pins": "wind:GP26,light:GP28,sda:GP20,scl:GP17,dht:GP21"
+     },
+     "header_note": "Parsed from the firmware's '# ...' header line. If it arrives after the session starts it is filled in when the session ends; null if none was received (for example, the Pico booted before the recorder connected). Every header seen is stored in the weather_headers table.",
+     "line_format": {
+      "W": "W,t_ms,v_adc,i_ma,wind_ms,clip (10 Hz)",
+      "E": "E,t_ms,dht_c,dht_rh,baro_hpa,baro_c,light_v,light_x[,baro_rh] (1 Hz; baro_rh from firmware v3.1)"
+     },
+     "sensors": [
+      {
+       "quantity": "wind speed",
+       "sensor": "cup anemometer, 4-20 mA loop into the Pico ADC via a shunt",
+       "unit": "m/s",
+       "rate": "10 Hz",
+       "notes": "Slow response (distance constant about 2-3 m); not turbulence-resolving. clip=1 marks ADC saturation. wind = (i_ma - zero) / 16 mA x range, with the rest current in the header (zero=, firmware v3.2+; earlier firmware assumed 4.00 mA and read about 0.5 m/s low). Empty wind with i_ma below about 3.2 mA means the loop was open or unpowered. A level that stays flat well above zero is a frozen sensor, not wind."
+      },
+      {
+       "quantity": "air temperature",
+       "sensor": "BMP280 or BME280 (header baro=)",
+       "unit": "degC",
+       "rate": "1 Hz",
+       "notes": "Reference air-temperature sensor (air_temp_c). Mount in the sun shield."
+      },
+      {
+       "quantity": "station pressure",
+       "sensor": "BMP280 or BME280 (header baro=)",
+       "unit": "hPa",
+       "rate": "1 Hz",
+       "notes": "Not reduced to sea level."
+      },
+      {
+       "quantity": "relative humidity (baro_rh)",
+       "sensor": "BME280 (firmware v3.1+; empty with a BMP280)",
+       "unit": "%RH",
+       "rate": "1 Hz",
+       "notes": "About +/-3 %RH over 0-100 %RH. Used for rh_pct when the DHT11 has no reading. Measures the air at the sensor, so it reads low when the enclosure is warmer than the outside air."
+      },
+      {
+       "quantity": "temperature, relative humidity",
+       "sensor": "DHT11",
+       "unit": "degC, %RH",
+       "rate": "1 Hz",
+       "notes": "Integer resolution; accuracy about +/-2 degC and +/-5 %RH. Range about 20-90 %RH: firmware v3.0 sends an empty RH when the DHT11 reports 0 (below range)."
+      },
+      {
+       "quantity": "light",
+       "sensor": "LDR (light=ldr) or BPW34 photodiode (light=bpw34)",
+       "unit": "V; ohm (LDR) or uA (BPW34)",
+       "rate": "1 Hz",
+       "notes": "Uncalibrated relative light level."
+      }
+     ],
+     "association": {
+      "window_s": 10.0,
+      "stale_after_s": 5.0,
+      "rule": "Wind statistics use W samples with capture host_received_ns - window_s < host time <= host_received_ns; population std. wind_ti = std/mean, null when mean < 1 m/s. taylor_ok = mean >= 1 m/s and TI < 0.5. Environment fields are the latest E sample at or before the capture; weather_age_s is its age. weather_status: ok (wind and environment both within stale_after_s), stale, missing (no samples), disabled.",
+      "fields": {
+       "air_temp_c": "BMP280/BME280 temperature",
+       "dht_temp_c": "DHT11 temperature",
+       "rh_pct": "DHT11 relative humidity, or BME280 humidity (baro_rh) when the DHT11 has no reading (below about 20 %RH or failed)",
+       "rh_source": "DHT11 or BME280: which sensor rh_pct came from",
+       "pressure_hpa": "BMP280 station pressure",
+       "light_v": "light-sensor voltage",
+       "ldr_ohm": "firmware light_x: LDR resistance (ohm) when light=ldr, photocurrent (uA) when light=bpw34"
+      }
+     },
+     "caveats": [
+      "The cup anemometer has a distance constant of about 2-3 m, so wind statistics are not turbulence-resolving.",
+      "Cn2 is not measured by any of these sensors.",
+      "The BMP280 temperature is the air-temperature sensor; the DHT11 is accurate to about +/-2 degC and +/-5 %RH.",
+      "Empty firmware fields mean a missing sensor or failed read and are stored as null, never 0.",
+      "Times are host receive timestamps (time.time_ns on line receipt), including USB/serial latency. Pico t_ms is an auxiliary uptime counter that wraps."
+     ]
+    }
+   },
+   "capture_count": 5048,
+   "sample_count": 8086896
+  },
+  {
+   "id": "20261111T194005Z-b9ea0845",
+   "started_utc": "2026-11-11T19:40:05.264+00:00",
+   "ended_utc": "2026-11-11T20:40:05.800+00:00",
+   "status": "complete",
+   "mode": "hardware",
+   "metadata": {
+    "schema_version": 3,
+    "application_version": "0.1.0",
+    "driver_repository": "https://github.com/maccelarimatt/Hantek6254BC-Linux-Driver",
+    "driver_revision": "be5663df4f0a93e96c039071f9502c698da678a1",
+    "settings": {
+     "mode": "hardware",
+     "capture_interval_s": 0,
+     "session_duration_s": 3600,
+     "minimum_free_disk_mb": 1024,
+     "retry_interval_s": 5,
+     "record_on_start": false,
+     "scope": {
+      "sample_rate": 25000,
+      "depth": 16384,
+      "volts_per_div": [
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ],
+      "probe_factors": [
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ],
+      "x_channel": 1,
+      "y_channel": 2,
+      "sum_channel": 3,
+      "store_rate_hz": 2500,
+      "bus": null,
+      "address": null
+     },
+     "calibration": {
+      "x_offset_v": 0.0,
+      "y_offset_v": 0.0,
+      "sum_offset_v": 0.0,
+      "minimum_sum_v": 0.5,
+      "position_model": "difference_over_sum",
+      "x_scale_mm": 5.0,
+      "y_scale_mm": 5.0,
+      "saturation_v": 4.0,
+      "notes": "Thorlabs PDP90A lateral-effect PSD, scales from the manual (Lx = Ly = 10 mm). Position displacement error +/-250 um per the manual; not yet verified against a translation stage."
+     },
+     "experiment": {
+      "title": "Live laser link",
+      "institution": "University of the Witwatersrand",
+      "laboratory": "Optical Communications Lab",
+      "laser": "CW532-005",
+      "wavelength_nm": 532.0,
+      "one_way_distance_m": 150.0,
+      "detector": "PDP90A",
+      "location": "Johannesburg, South Africa",
+      "data_license": "Not specified \u2014 contact the lab for reuse terms",
+      "contact": ""
+     },
+     "weather": {
+      "enabled": true,
+      "port": null,
+      "baud": 115200,
+      "association_window_s": 10.0,
+      "stale_after_s": 5.0
+     }
+    },
+    "time_basis": "UTC host call-start and receive timestamps; sample time is relative within each burst. No hardware UTC timestamp. Bursts are not contiguous.",
+    "statistics": "Voltage mean and population std use all samples. Position mean and radial RMS about the burst centroid use only unclipped samples with corrected SUM >= minimum_sum_v. scintillation_index = var(SUM)/mean(SUM)^2 of the stored band-limited series over valid stored samples; it includes detector and scope noise.",
+    "decimation": {
+     "factor": 10,
+     "taps": 365,
+     "stored": 1602,
+     "bandwidth_hz": 1000.0,
+     "t0_s": 0.00728,
+     "store_rate_hz": 2500,
+     "filter": "Linear-phase Kaiser FIR, unity DC gain, flat to 0.4 x store rate, >= 60 dB attenuation from 0.5 x store rate; valid convolution only (no edge transients)."
+    },
+    "raw_format": "Per-capture NPZ: codes (4,M) int16 = scope ADC codes x 64 about mid-scale after anti-alias filtering and decimation to store_rate_hz; clipped (M) bool, true where any mapped X/Y/SUM sample under the filter reached the ADC rails; t0_s = time of stored sample 0 after the burst's first scope sample. Volts = codes x volts_per_div x probe_factor / (31 x 64). No offset correction applied to archived voltage columns.",
+    "weather": {
+     "enabled": true,
+     "source": "hardware",
+     "device": {
+      "description": "Raspberry Pi Pico W weather station, USB CDC serial",
+      "usb_vid": "0x2E8A",
+      "port": "/dev/ttyACM0",
+      "configured_port": null,
+      "baud": 115200
+     },
+     "header": {
+      "firmware": "pico-weather",
+      "version": "v3.2",
+      "wind": "10Hz",
+      "anemo": "4-20mA",
+      "shunt": "165.0ohm",
+      "range": "30.0m/s",
+      "zero": "3.72mA",
+      "light": "ldr",
+      "r_light": "1000ohm",
+      "baro": "BMP280",
+      "dht": "yes",
+      "pins": "wind:GP26,light:GP28,sda:GP20,scl:GP17,dht:GP21"
+     },
+     "header_note": "Parsed from the firmware's '# ...' header line. If it arrives after the session starts it is filled in when the session ends; null if none was received (for example, the Pico booted before the recorder connected). Every header seen is stored in the weather_headers table.",
+     "line_format": {
+      "W": "W,t_ms,v_adc,i_ma,wind_ms,clip (10 Hz)",
+      "E": "E,t_ms,dht_c,dht_rh,baro_hpa,baro_c,light_v,light_x[,baro_rh] (1 Hz; baro_rh from firmware v3.1)"
+     },
+     "sensors": [
+      {
+       "quantity": "wind speed",
+       "sensor": "cup anemometer, 4-20 mA loop into the Pico ADC via a shunt",
+       "unit": "m/s",
+       "rate": "10 Hz",
+       "notes": "Slow response (distance constant about 2-3 m); not turbulence-resolving. clip=1 marks ADC saturation. wind = (i_ma - zero) / 16 mA x range, with the rest current in the header (zero=, firmware v3.2+; earlier firmware assumed 4.00 mA and read about 0.5 m/s low). Empty wind with i_ma below about 3.2 mA means the loop was open or unpowered. A level that stays flat well above zero is a frozen sensor, not wind."
+      },
+      {
+       "quantity": "air temperature",
+       "sensor": "BMP280 or BME280 (header baro=)",
+       "unit": "degC",
+       "rate": "1 Hz",
+       "notes": "Reference air-temperature sensor (air_temp_c). Mount in the sun shield."
+      },
+      {
+       "quantity": "station pressure",
+       "sensor": "BMP280 or BME280 (header baro=)",
+       "unit": "hPa",
+       "rate": "1 Hz",
+       "notes": "Not reduced to sea level."
+      },
+      {
+       "quantity": "relative humidity (baro_rh)",
+       "sensor": "BME280 (firmware v3.1+; empty with a BMP280)",
+       "unit": "%RH",
+       "rate": "1 Hz",
+       "notes": "About +/-3 %RH over 0-100 %RH. Used for rh_pct when the DHT11 has no reading. Measures the air at the sensor, so it reads low when the enclosure is warmer than the outside air."
+      },
+      {
+       "quantity": "temperature, relative humidity",
+       "sensor": "DHT11",
+       "unit": "degC, %RH",
+       "rate": "1 Hz",
+       "notes": "Integer resolution; accuracy about +/-2 degC and +/-5 %RH. Range about 20-90 %RH: firmware v3.0 sends an empty RH when the DHT11 reports 0 (below range)."
+      },
+      {
+       "quantity": "light",
+       "sensor": "LDR (light=ldr) or BPW34 photodiode (light=bpw34)",
+       "unit": "V; ohm (LDR) or uA (BPW34)",
+       "rate": "1 Hz",
+       "notes": "Uncalibrated relative light level."
+      }
+     ],
+     "association": {
+      "window_s": 10.0,
+      "stale_after_s": 5.0,
+      "rule": "Wind statistics use W samples with capture host_received_ns - window_s < host time <= host_received_ns; population std. wind_ti = std/mean, null when mean < 1 m/s. taylor_ok = mean >= 1 m/s and TI < 0.5. Environment fields are the latest E sample at or before the capture; weather_age_s is its age. weather_status: ok (wind and environment both within stale_after_s), stale, missing (no samples), disabled.",
+      "fields": {
+       "air_temp_c": "BMP280/BME280 temperature",
+       "dht_temp_c": "DHT11 temperature",
+       "rh_pct": "DHT11 relative humidity, or BME280 humidity (baro_rh) when the DHT11 has no reading (below about 20 %RH or failed)",
+       "rh_source": "DHT11 or BME280: which sensor rh_pct came from",
+       "pressure_hpa": "BMP280 station pressure",
+       "light_v": "light-sensor voltage",
+       "ldr_ohm": "firmware light_x: LDR resistance (ohm) when light=ldr, photocurrent (uA) when light=bpw34"
+      }
+     },
+     "caveats": [
+      "The cup anemometer has a distance constant of about 2-3 m, so wind statistics are not turbulence-resolving.",
+      "Cn2 is not measured by any of these sensors.",
+      "The BMP280 temperature is the air-temperature sensor; the DHT11 is accurate to about +/-2 degC and +/-5 %RH.",
+      "Empty firmware fields mean a missing sensor or failed read and are stored as null, never 0.",
+      "Times are host receive timestamps (time.time_ns on line receipt), including USB/serial latency. Pico t_ms is an auxiliary uptime counter that wraps."
+     ]
+    }
+   },
+   "capture_count": 5046,
+   "sample_count": 8083692
+  },
+  {
+   "id": "20261111T204005Z-8ca252c6",
+   "started_utc": "2026-11-11T20:40:05.804+00:00",
+   "ended_utc": "2026-11-11T21:40:06.045+00:00",
+   "status": "complete",
+   "mode": "hardware",
+   "metadata": {
+    "schema_version": 3,
+    "application_version": "0.1.0",
+    "driver_repository": "https://github.com/maccelarimatt/Hantek6254BC-Linux-Driver",
+    "driver_revision": "be5663df4f0a93e96c039071f9502c698da678a1",
+    "settings": {
+     "mode": "hardware",
+     "capture_interval_s": 0,
+     "session_duration_s": 3600,
+     "minimum_free_disk_mb": 1024,
+     "retry_interval_s": 5,
+     "record_on_start": false,
+     "scope": {
+      "sample_rate": 25000,
+      "depth": 16384,
+      "volts_per_div": [
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ],
+      "probe_factors": [
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ],
+      "x_channel": 1,
+      "y_channel": 2,
+      "sum_channel": 3,
+      "store_rate_hz": 2500,
+      "bus": null,
+      "address": null
+     },
+     "calibration": {
+      "x_offset_v": 0.0,
+      "y_offset_v": 0.0,
+      "sum_offset_v": 0.0,
+      "minimum_sum_v": 0.5,
+      "position_model": "difference_over_sum",
+      "x_scale_mm": 5.0,
+      "y_scale_mm": 5.0,
+      "saturation_v": 4.0,
+      "notes": "Thorlabs PDP90A lateral-effect PSD, scales from the manual (Lx = Ly = 10 mm). Position displacement error +/-250 um per the manual; not yet verified against a translation stage."
+     },
+     "experiment": {
+      "title": "Live laser link",
+      "institution": "University of the Witwatersrand",
+      "laboratory": "Optical Communications Lab",
+      "laser": "CW532-005",
+      "wavelength_nm": 532.0,
+      "one_way_distance_m": 150.0,
+      "detector": "PDP90A",
+      "location": "Johannesburg, South Africa",
+      "data_license": "Not specified \u2014 contact the lab for reuse terms",
+      "contact": ""
+     },
+     "weather": {
+      "enabled": true,
+      "port": null,
+      "baud": 115200,
+      "association_window_s": 10.0,
+      "stale_after_s": 5.0
+     }
+    },
+    "time_basis": "UTC host call-start and receive timestamps; sample time is relative within each burst. No hardware UTC timestamp. Bursts are not contiguous.",
+    "statistics": "Voltage mean and population std use all samples. Position mean and radial RMS about the burst centroid use only unclipped samples with corrected SUM >= minimum_sum_v. scintillation_index = var(SUM)/mean(SUM)^2 of the stored band-limited series over valid stored samples; it includes detector and scope noise.",
+    "decimation": {
+     "factor": 10,
+     "taps": 365,
+     "stored": 1602,
+     "bandwidth_hz": 1000.0,
+     "t0_s": 0.00728,
+     "store_rate_hz": 2500,
+     "filter": "Linear-phase Kaiser FIR, unity DC gain, flat to 0.4 x store rate, >= 60 dB attenuation from 0.5 x store rate; valid convolution only (no edge transients)."
+    },
+    "raw_format": "Per-capture NPZ: codes (4,M) int16 = scope ADC codes x 64 about mid-scale after anti-alias filtering and decimation to store_rate_hz; clipped (M) bool, true where any mapped X/Y/SUM sample under the filter reached the ADC rails; t0_s = time of stored sample 0 after the burst's first scope sample. Volts = codes x volts_per_div x probe_factor / (31 x 64). No offset correction applied to archived voltage columns.",
+    "weather": {
+     "enabled": true,
+     "source": "hardware",
+     "device": {
+      "description": "Raspberry Pi Pico W weather station, USB CDC serial",
+      "usb_vid": "0x2E8A",
+      "port": "/dev/ttyACM0",
+      "configured_port": null,
+      "baud": 115200
+     },
+     "header": {
+      "firmware": "pico-weather",
+      "version": "v3.2",
+      "wind": "10Hz",
+      "anemo": "4-20mA",
+      "shunt": "165.0ohm",
+      "range": "30.0m/s",
+      "zero": "3.72mA",
+      "light": "ldr",
+      "r_light": "1000ohm",
+      "baro": "BMP280",
+      "dht": "yes",
+      "pins": "wind:GP26,light:GP28,sda:GP20,scl:GP17,dht:GP21"
+     },
+     "header_note": "Parsed from the firmware's '# ...' header line. If it arrives after the session starts it is filled in when the session ends; null if none was received (for example, the Pico booted before the recorder connected). Every header seen is stored in the weather_headers table.",
+     "line_format": {
+      "W": "W,t_ms,v_adc,i_ma,wind_ms,clip (10 Hz)",
+      "E": "E,t_ms,dht_c,dht_rh,baro_hpa,baro_c,light_v,light_x[,baro_rh] (1 Hz; baro_rh from firmware v3.1)"
+     },
+     "sensors": [
+      {
+       "quantity": "wind speed",
+       "sensor": "cup anemometer, 4-20 mA loop into the Pico ADC via a shunt",
+       "unit": "m/s",
+       "rate": "10 Hz",
+       "notes": "Slow response (distance constant about 2-3 m); not turbulence-resolving. clip=1 marks ADC saturation. wind = (i_ma - zero) / 16 mA x range, with the rest current in the header (zero=, firmware v3.2+; earlier firmware assumed 4.00 mA and read about 0.5 m/s low). Empty wind with i_ma below about 3.2 mA means the loop was open or unpowered. A level that stays flat well above zero is a frozen sensor, not wind."
+      },
+      {
+       "quantity": "air temperature",
+       "sensor": "BMP280 or BME280 (header baro=)",
+       "unit": "degC",
+       "rate": "1 Hz",
+       "notes": "Reference air-temperature sensor (air_temp_c). Mount in the sun shield."
+      },
+      {
+       "quantity": "station pressure",
+       "sensor": "BMP280 or BME280 (header baro=)",
+       "unit": "hPa",
+       "rate": "1 Hz",
+       "notes": "Not reduced to sea level."
+      },
+      {
+       "quantity": "relative humidity (baro_rh)",
+       "sensor": "BME280 (firmware v3.1+; empty with a BMP280)",
+       "unit": "%RH",
+       "rate": "1 Hz",
+       "notes": "About +/-3 %RH over 0-100 %RH. Used for rh_pct when the DHT11 has no reading. Measures the air at the sensor, so it reads low when the enclosure is warmer than the outside air."
+      },
+      {
+       "quantity": "temperature, relative humidity",
+       "sensor": "DHT11",
+       "unit": "degC, %RH",
+       "rate": "1 Hz",
+       "notes": "Integer resolution; accuracy about +/-2 degC and +/-5 %RH. Range about 20-90 %RH: firmware v3.0 sends an empty RH when the DHT11 reports 0 (below range)."
+      },
+      {
+       "quantity": "light",
+       "sensor": "LDR (light=ldr) or BPW34 photodiode (light=bpw34)",
+       "unit": "V; ohm (LDR) or uA (BPW34)",
+       "rate": "1 Hz",
+       "notes": "Uncalibrated relative light level."
+      }
+     ],
+     "association": {
+      "window_s": 10.0,
+      "stale_after_s": 5.0,
+      "rule": "Wind statistics use W samples with capture host_received_ns - window_s < host time <= host_received_ns; population std. wind_ti = std/mean, null when mean < 1 m/s. taylor_ok = mean >= 1 m/s and TI < 0.5. Environment fields are the latest E sample at or before the capture; weather_age_s is its age. weather_status: ok (wind and environment both within stale_after_s), stale, missing (no samples), disabled.",
+      "fields": {
+       "air_temp_c": "BMP280/BME280 temperature",
+       "dht_temp_c": "DHT11 temperature",
+       "rh_pct": "DHT11 relative humidity, or BME280 humidity (baro_rh) when the DHT11 has no reading (below about 20 %RH or failed)",
+       "rh_source": "DHT11 or BME280: which sensor rh_pct came from",
+       "pressure_hpa": "BMP280 station pressure",
+       "light_v": "light-sensor voltage",
+       "ldr_ohm": "firmware light_x: LDR resistance (ohm) when light=ldr, photocurrent (uA) when light=bpw34"
+      }
+     },
+     "caveats": [
+      "The cup anemometer has a distance constant of about 2-3 m, so wind statistics are not turbulence-resolving.",
+      "Cn2 is not measured by any of these sensors.",
+      "The BMP280 temperature is the air-temperature sensor; the DHT11 is accurate to about +/-2 degC and +/-5 %RH.",
+      "Empty firmware fields mean a missing sensor or failed read and are stored as null, never 0.",
+      "Times are host receive timestamps (time.time_ns on line receipt), including USB/serial latency. Pico t_ms is an auxiliary uptime counter that wraps."
+     ]
+    }
+   },
+   "capture_count": 5044,
+   "sample_count": 8080488
+  },
+  {
+   "id": "20261111T214006Z-56985341",
+   "started_utc": "2026-11-11T21:40:06.048+00:00",
+   "ended_utc": "2026-11-11T22:40:06.522+00:00",
+   "status": "complete",
+   "mode": "hardware",
+   "metadata": {
+    "schema_version": 3,
+    "application_version": "0.1.0",
+    "driver_repository": "https://github.com/maccelarimatt/Hantek6254BC-Linux-Driver",
+    "driver_revision": "be5663df4f0a93e96c039071f9502c698da678a1",
+    "settings": {
+     "mode": "hardware",
+     "capture_interval_s": 0,
+     "session_duration_s": 3600,
+     "minimum_free_disk_mb": 1024,
+     "retry_interval_s": 5,
+     "record_on_start": false,
+     "scope": {
+      "sample_rate": 25000,
+      "depth": 16384,
+      "volts_per_div": [
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ],
+      "probe_factors": [
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ],
+      "x_channel": 1,
+      "y_channel": 2,
+      "sum_channel": 3,
+      "store_rate_hz": 2500,
+      "bus": null,
+      "address": null
+     },
+     "calibration": {
+      "x_offset_v": 0.0,
+      "y_offset_v": 0.0,
+      "sum_offset_v": 0.0,
+      "minimum_sum_v": 0.5,
+      "position_model": "difference_over_sum",
+      "x_scale_mm": 5.0,
+      "y_scale_mm": 5.0,
+      "saturation_v": 4.0,
+      "notes": "Thorlabs PDP90A lateral-effect PSD, scales from the manual (Lx = Ly = 10 mm). Position displacement error +/-250 um per the manual; not yet verified against a translation stage."
+     },
+     "experiment": {
+      "title": "Live laser link",
+      "institution": "University of the Witwatersrand",
+      "laboratory": "Optical Communications Lab",
+      "laser": "CW532-005",
+      "wavelength_nm": 532.0,
+      "one_way_distance_m": 150.0,
+      "detector": "PDP90A",
+      "location": "Johannesburg, South Africa",
+      "data_license": "Not specified \u2014 contact the lab for reuse terms",
+      "contact": ""
+     },
+     "weather": {
+      "enabled": true,
+      "port": null,
+      "baud": 115200,
+      "association_window_s": 10.0,
+      "stale_after_s": 5.0
+     }
+    },
+    "time_basis": "UTC host call-start and receive timestamps; sample time is relative within each burst. No hardware UTC timestamp. Bursts are not contiguous.",
+    "statistics": "Voltage mean and population std use all samples. Position mean and radial RMS about the burst centroid use only unclipped samples with corrected SUM >= minimum_sum_v. scintillation_index = var(SUM)/mean(SUM)^2 of the stored band-limited series over valid stored samples; it includes detector and scope noise.",
+    "decimation": {
+     "factor": 10,
+     "taps": 365,
+     "stored": 1602,
+     "bandwidth_hz": 1000.0,
+     "t0_s": 0.00728,
+     "store_rate_hz": 2500,
+     "filter": "Linear-phase Kaiser FIR, unity DC gain, flat to 0.4 x store rate, >= 60 dB attenuation from 0.5 x store rate; valid convolution only (no edge transients)."
+    },
+    "raw_format": "Per-capture NPZ: codes (4,M) int16 = scope ADC codes x 64 about mid-scale after anti-alias filtering and decimation to store_rate_hz; clipped (M) bool, true where any mapped X/Y/SUM sample under the filter reached the ADC rails; t0_s = time of stored sample 0 after the burst's first scope sample. Volts = codes x volts_per_div x probe_factor / (31 x 64). No offset correction applied to archived voltage columns.",
+    "weather": {
+     "enabled": true,
+     "source": "hardware",
+     "device": {
+      "description": "Raspberry Pi Pico W weather station, USB CDC serial",
+      "usb_vid": "0x2E8A",
+      "port": "/dev/ttyACM0",
+      "configured_port": null,
+      "baud": 115200
+     },
+     "header": {
+      "firmware": "pico-weather",
+      "version": "v3.2",
+      "wind": "10Hz",
+      "anemo": "4-20mA",
+      "shunt": "165.0ohm",
+      "range": "30.0m/s",
+      "zero": "3.72mA",
+      "light": "ldr",
+      "r_light": "1000ohm",
+      "baro": "BMP280",
+      "dht": "yes",
+      "pins": "wind:GP26,light:GP28,sda:GP20,scl:GP17,dht:GP21"
+     },
+     "header_note": "Parsed from the firmware's '# ...' header line. If it arrives after the session starts it is filled in when the session ends; null if none was received (for example, the Pico booted before the recorder connected). Every header seen is stored in the weather_headers table.",
+     "line_format": {
+      "W": "W,t_ms,v_adc,i_ma,wind_ms,clip (10 Hz)",
+      "E": "E,t_ms,dht_c,dht_rh,baro_hpa,baro_c,light_v,light_x[,baro_rh] (1 Hz; baro_rh from firmware v3.1)"
+     },
+     "sensors": [
+      {
+       "quantity": "wind speed",
+       "sensor": "cup anemometer, 4-20 mA loop into the Pico ADC via a shunt",
+       "unit": "m/s",
+       "rate": "10 Hz",
+       "notes": "Slow response (distance constant about 2-3 m); not turbulence-resolving. clip=1 marks ADC saturation. wind = (i_ma - zero) / 16 mA x range, with the rest current in the header (zero=, firmware v3.2+; earlier firmware assumed 4.00 mA and read about 0.5 m/s low). Empty wind with i_ma below about 3.2 mA means the loop was open or unpowered. A level that stays flat well above zero is a frozen sensor, not wind."
+      },
+      {
+       "quantity": "air temperature",
+       "sensor": "BMP280 or BME280 (header baro=)",
+       "unit": "degC",
+       "rate": "1 Hz",
+       "notes": "Reference air-temperature sensor (air_temp_c). Mount in the sun shield."
+      },
+      {
+       "quantity": "station pressure",
+       "sensor": "BMP280 or BME280 (header baro=)",
+       "unit": "hPa",
+       "rate": "1 Hz",
+       "notes": "Not reduced to sea level."
+      },
+      {
+       "quantity": "relative humidity (baro_rh)",
+       "sensor": "BME280 (firmware v3.1+; empty with a BMP280)",
+       "unit": "%RH",
+       "rate": "1 Hz",
+       "notes": "About +/-3 %RH over 0-100 %RH. Used for rh_pct when the DHT11 has no reading. Measures the air at the sensor, so it reads low when the enclosure is warmer than the outside air."
+      },
+      {
+       "quantity": "temperature, relative humidity",
+       "sensor": "DHT11",
+       "unit": "degC, %RH",
+       "rate": "1 Hz",
+       "notes": "Integer resolution; accuracy about +/-2 degC and +/-5 %RH. Range about 20-90 %RH: firmware v3.0 sends an empty RH when the DHT11 reports 0 (below range)."
+      },
+      {
+       "quantity": "light",
+       "sensor": "LDR (light=ldr) or BPW34 photodiode (light=bpw34)",
+       "unit": "V; ohm (LDR) or uA (BPW34)",
+       "rate": "1 Hz",
+       "notes": "Uncalibrated relative light level."
+      }
+     ],
+     "association": {
+      "window_s": 10.0,
+      "stale_after_s": 5.0,
+      "rule": "Wind statistics use W samples with capture host_received_ns - window_s < host time <= host_received_ns; population std. wind_ti = std/mean, null when mean < 1 m/s. taylor_ok = mean >= 1 m/s and TI < 0.5. Environment fields are the latest E sample at or before the capture; weather_age_s is its age. weather_status: ok (wind and environment both within stale_after_s), stale, missing (no samples), disabled.",
+      "fields": {
+       "air_temp_c": "BMP280/BME280 temperature",
+       "dht_temp_c": "DHT11 temperature",
+       "rh_pct": "DHT11 relative humidity, or BME280 humidity (baro_rh) when the DHT11 has no reading (below about 20 %RH or failed)",
+       "rh_source": "DHT11 or BME280: which sensor rh_pct came from",
+       "pressure_hpa": "BMP280 station pressure",
+       "light_v": "light-sensor voltage",
+       "ldr_ohm": "firmware light_x: LDR resistance (ohm) when light=ldr, photocurrent (uA) when light=bpw34"
+      }
+     },
+     "caveats": [
+      "The cup anemometer has a distance constant of about 2-3 m, so wind statistics are not turbulence-resolving.",
+      "Cn2 is not measured by any of these sensors.",
+      "The BMP280 temperature is the air-temperature sensor; the DHT11 is accurate to about +/-2 degC and +/-5 %RH.",
+      "Empty firmware fields mean a missing sensor or failed read and are stored as null, never 0.",
+      "Times are host receive timestamps (time.time_ns on line receipt), including USB/serial latency. Pico t_ms is an auxiliary uptime counter that wraps."
+     ]
+    }
+   },
+   "capture_count": 5031,
+   "sample_count": 8059662
+  },
+  {
+   "id": "20261111T224006Z-163ebb2a",
+   "started_utc": "2026-11-11T22:40:06.527+00:00",
+   "ended_utc": "2026-11-11T23:40:06.705+00:00",
+   "status": "complete",
+   "mode": "hardware",
+   "metadata": {
+    "schema_version": 3,
+    "application_version": "0.1.0",
+    "driver_repository": "https://github.com/maccelarimatt/Hantek6254BC-Linux-Driver",
+    "driver_revision": "be5663df4f0a93e96c039071f9502c698da678a1",
+    "settings": {
+     "mode": "hardware",
+     "capture_interval_s": 0,
+     "session_duration_s": 3600,
+     "minimum_free_disk_mb": 1024,
+     "retry_interval_s": 5,
+     "record_on_start": false,
+     "scope": {
+      "sample_rate": 25000,
+      "depth": 16384,
+      "volts_per_div": [
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ],
+      "probe_factors": [
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ],
+      "x_channel": 1,
+      "y_channel": 2,
+      "sum_channel": 3,
+      "store_rate_hz": 2500,
+      "bus": null,
+      "address": null
+     },
+     "calibration": {
+      "x_offset_v": 0.0,
+      "y_offset_v": 0.0,
+      "sum_offset_v": 0.0,
+      "minimum_sum_v": 0.5,
+      "position_model": "difference_over_sum",
+      "x_scale_mm": 5.0,
+      "y_scale_mm": 5.0,
+      "saturation_v": 4.0,
+      "notes": "Thorlabs PDP90A lateral-effect PSD, scales from the manual (Lx = Ly = 10 mm). Position displacement error +/-250 um per the manual; not yet verified against a translation stage."
+     },
+     "experiment": {
+      "title": "Live laser link",
+      "institution": "University of the Witwatersrand",
+      "laboratory": "Optical Communications Lab",
+      "laser": "CW532-005",
+      "wavelength_nm": 532.0,
+      "one_way_distance_m": 150.0,
+      "detector": "PDP90A",
+      "location": "Johannesburg, South Africa",
+      "data_license": "Not specified \u2014 contact the lab for reuse terms",
+      "contact": ""
+     },
+     "weather": {
+      "enabled": true,
+      "port": null,
+      "baud": 115200,
+      "association_window_s": 10.0,
+      "stale_after_s": 5.0
+     }
+    },
+    "time_basis": "UTC host call-start and receive timestamps; sample time is relative within each burst. No hardware UTC timestamp. Bursts are not contiguous.",
+    "statistics": "Voltage mean and population std use all samples. Position mean and radial RMS about the burst centroid use only unclipped samples with corrected SUM >= minimum_sum_v. scintillation_index = var(SUM)/mean(SUM)^2 of the stored band-limited series over valid stored samples; it includes detector and scope noise.",
+    "decimation": {
+     "factor": 10,
+     "taps": 365,
+     "stored": 1602,
+     "bandwidth_hz": 1000.0,
+     "t0_s": 0.00728,
+     "store_rate_hz": 2500,
+     "filter": "Linear-phase Kaiser FIR, unity DC gain, flat to 0.4 x store rate, >= 60 dB attenuation from 0.5 x store rate; valid convolution only (no edge transients)."
+    },
+    "raw_format": "Per-capture NPZ: codes (4,M) int16 = scope ADC codes x 64 about mid-scale after anti-alias filtering and decimation to store_rate_hz; clipped (M) bool, true where any mapped X/Y/SUM sample under the filter reached the ADC rails; t0_s = time of stored sample 0 after the burst's first scope sample. Volts = codes x volts_per_div x probe_factor / (31 x 64). No offset correction applied to archived voltage columns.",
+    "weather": {
+     "enabled": true,
+     "source": "hardware",
+     "device": {
+      "description": "Raspberry Pi Pico W weather station, USB CDC serial",
+      "usb_vid": "0x2E8A",
+      "port": "/dev/ttyACM0",
+      "configured_port": null,
+      "baud": 115200
+     },
+     "header": {
+      "firmware": "pico-weather",
+      "version": "v3.2",
+      "wind": "10Hz",
+      "anemo": "4-20mA",
+      "shunt": "165.0ohm",
+      "range": "30.0m/s",
+      "zero": "3.72mA",
+      "light": "ldr",
+      "r_light": "1000ohm",
+      "baro": "BMP280",
+      "dht": "yes",
+      "pins": "wind:GP26,light:GP28,sda:GP20,scl:GP17,dht:GP21"
+     },
+     "header_note": "Parsed from the firmware's '# ...' header line. If it arrives after the session starts it is filled in when the session ends; null if none was received (for example, the Pico booted before the recorder connected). Every header seen is stored in the weather_headers table.",
+     "line_format": {
+      "W": "W,t_ms,v_adc,i_ma,wind_ms,clip (10 Hz)",
+      "E": "E,t_ms,dht_c,dht_rh,baro_hpa,baro_c,light_v,light_x[,baro_rh] (1 Hz; baro_rh from firmware v3.1)"
+     },
+     "sensors": [
+      {
+       "quantity": "wind speed",
+       "sensor": "cup anemometer, 4-20 mA loop into the Pico ADC via a shunt",
+       "unit": "m/s",
+       "rate": "10 Hz",
+       "notes": "Slow response (distance constant about 2-3 m); not turbulence-resolving. clip=1 marks ADC saturation. wind = (i_ma - zero) / 16 mA x range, with the rest current in the header (zero=, firmware v3.2+; earlier firmware assumed 4.00 mA and read about 0.5 m/s low). Empty wind with i_ma below about 3.2 mA means the loop was open or unpowered. A level that stays flat well above zero is a frozen sensor, not wind."
+      },
+      {
+       "quantity": "air temperature",
+       "sensor": "BMP280 or BME280 (header baro=)",
+       "unit": "degC",
+       "rate": "1 Hz",
+       "notes": "Reference air-temperature sensor (air_temp_c). Mount in the sun shield."
+      },
+      {
+       "quantity": "station pressure",
+       "sensor": "BMP280 or BME280 (header baro=)",
+       "unit": "hPa",
+       "rate": "1 Hz",
+       "notes": "Not reduced to sea level."
+      },
+      {
+       "quantity": "relative humidity (baro_rh)",
+       "sensor": "BME280 (firmware v3.1+; empty with a BMP280)",
+       "unit": "%RH",
+       "rate": "1 Hz",
+       "notes": "About +/-3 %RH over 0-100 %RH. Used for rh_pct when the DHT11 has no reading. Measures the air at the sensor, so it reads low when the enclosure is warmer than the outside air."
+      },
+      {
+       "quantity": "temperature, relative humidity",
+       "sensor": "DHT11",
+       "unit": "degC, %RH",
+       "rate": "1 Hz",
+       "notes": "Integer resolution; accuracy about +/-2 degC and +/-5 %RH. Range about 20-90 %RH: firmware v3.0 sends an empty RH when the DHT11 reports 0 (below range)."
+      },
+      {
+       "quantity": "light",
+       "sensor": "LDR (light=ldr) or BPW34 photodiode (light=bpw34)",
+       "unit": "V; ohm (LDR) or uA (BPW34)",
+       "rate": "1 Hz",
+       "notes": "Uncalibrated relative light level."
+      }
+     ],
+     "association": {
+      "window_s": 10.0,
+      "stale_after_s": 5.0,
+      "rule": "Wind statistics use W samples with capture host_received_ns - window_s < host time <= host_received_ns; population std. wind_ti = std/mean, null when mean < 1 m/s. taylor_ok = mean >= 1 m/s and TI < 0.5. Environment fields are the latest E sample at or before the capture; weather_age_s is its age. weather_status: ok (wind and environment both within stale_after_s), stale, missing (no samples), disabled.",
+      "fields": {
+       "air_temp_c": "BMP280/BME280 temperature",
+       "dht_temp_c": "DHT11 temperature",
+       "rh_pct": "DHT11 relative humidity, or BME280 humidity (baro_rh) when the DHT11 has no reading (below about 20 %RH or failed)",
+       "rh_source": "DHT11 or BME280: which sensor rh_pct came from",
+       "pressure_hpa": "BMP280 station pressure",
+       "light_v": "light-sensor voltage",
+       "ldr_ohm": "firmware light_x: LDR resistance (ohm) when light=ldr, photocurrent (uA) when light=bpw34"
+      }
+     },
+     "caveats": [
+      "The cup anemometer has a distance constant of about 2-3 m, so wind statistics are not turbulence-resolving.",
+      "Cn2 is not measured by any of these sensors.",
+      "The BMP280 temperature is the air-temperature sensor; the DHT11 is accurate to about +/-2 degC and +/-5 %RH.",
+      "Empty firmware fields mean a missing sensor or failed read and are stored as null, never 0.",
+      "Times are host receive timestamps (time.time_ns on line receipt), including USB/serial latency. Pico t_ms is an auxiliary uptime counter that wraps."
+     ]
+    }
+   },
+   "capture_count": 5027,
+   "sample_count": 8053254
+  },
+  {
+   "id": "20261111T234006Z-99bcb89f",
+   "started_utc": "2026-11-11T23:40:06.709+00:00",
+   "ended_utc": "2026-11-12T00:40:07.085+00:00",
+   "status": "complete",
+   "mode": "hardware",
+   "metadata": {
+    "schema_version": 3,
+    "application_version": "0.1.0",
+    "driver_repository": "https://github.com/maccelarimatt/Hantek6254BC-Linux-Driver",
+    "driver_revision": "be5663df4f0a93e96c039071f9502c698da678a1",
+    "settings": {
+     "mode": "hardware",
+     "capture_interval_s": 0,
+     "session_duration_s": 3600,
+     "minimum_free_disk_mb": 1024,
+     "retry_interval_s": 5,
+     "record_on_start": false,
+     "scope": {
+      "sample_rate": 25000,
+      "depth": 16384,
+      "volts_per_div": [
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ],
+      "probe_factors": [
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ],
+      "x_channel": 1,
+      "y_channel": 2,
+      "sum_channel": 3,
+      "store_rate_hz": 2500,
+      "bus": null,
+      "address": null
+     },
+     "calibration": {
+      "x_offset_v": 0.0,
+      "y_offset_v": 0.0,
+      "sum_offset_v": 0.0,
+      "minimum_sum_v": 0.5,
+      "position_model": "difference_over_sum",
+      "x_scale_mm": 5.0,
+      "y_scale_mm": 5.0,
+      "saturation_v": 4.0,
+      "notes": "Thorlabs PDP90A lateral-effect PSD, scales from the manual (Lx = Ly = 10 mm). Position displacement error +/-250 um per the manual; not yet verified against a translation stage."
+     },
+     "experiment": {
+      "title": "Live laser link",
+      "institution": "University of the Witwatersrand",
+      "laboratory": "Optical Communications Lab",
+      "laser": "CW532-005",
+      "wavelength_nm": 532.0,
+      "one_way_distance_m": 150.0,
+      "detector": "PDP90A",
+      "location": "Johannesburg, South Africa",
+      "data_license": "Not specified \u2014 contact the lab for reuse terms",
+      "contact": ""
+     },
+     "weather": {
+      "enabled": true,
+      "port": null,
+      "baud": 115200,
+      "association_window_s": 10.0,
+      "stale_after_s": 5.0
+     }
+    },
+    "time_basis": "UTC host call-start and receive timestamps; sample time is relative within each burst. No hardware UTC timestamp. Bursts are not contiguous.",
+    "statistics": "Voltage mean and population std use all samples. Position mean and radial RMS about the burst centroid use only unclipped samples with corrected SUM >= minimum_sum_v. scintillation_index = var(SUM)/mean(SUM)^2 of the stored band-limited series over valid stored samples; it includes detector and scope noise.",
+    "decimation": {
+     "factor": 10,
+     "taps": 365,
+     "stored": 1602,
+     "bandwidth_hz": 1000.0,
+     "t0_s": 0.00728,
+     "store_rate_hz": 2500,
+     "filter": "Linear-phase Kaiser FIR, unity DC gain, flat to 0.4 x store rate, >= 60 dB attenuation from 0.5 x store rate; valid convolution only (no edge transients)."
+    },
+    "raw_format": "Per-capture NPZ: codes (4,M) int16 = scope ADC codes x 64 about mid-scale after anti-alias filtering and decimation to store_rate_hz; clipped (M) bool, true where any mapped X/Y/SUM sample under the filter reached the ADC rails; t0_s = time of stored sample 0 after the burst's first scope sample. Volts = codes x volts_per_div x probe_factor / (31 x 64). No offset correction applied to archived voltage columns.",
+    "weather": {
+     "enabled": true,
+     "source": "hardware",
+     "device": {
+      "description": "Raspberry Pi Pico W weather station, USB CDC serial",
+      "usb_vid": "0x2E8A",
+      "port": "/dev/ttyACM0",
+      "configured_port": null,
+      "baud": 115200
+     },
+     "header": {
+      "firmware": "pico-weather",
+      "version": "v3.2",
+      "wind": "10Hz",
+      "anemo": "4-20mA",
+      "shunt": "165.0ohm",
+      "range": "30.0m/s",
+      "zero": "3.72mA",
+      "light": "ldr",
+      "r_light": "1000ohm",
+      "baro": "BMP280",
+      "dht": "yes",
+      "pins": "wind:GP26,light:GP28,sda:GP20,scl:GP17,dht:GP21"
+     },
+     "header_note": "Parsed from the firmware's '# ...' header line. If it arrives after the session starts it is filled in when the session ends; null if none was received (for example, the Pico booted before the recorder connected). Every header seen is stored in the weather_headers table.",
+     "line_format": {
+      "W": "W,t_ms,v_adc,i_ma,wind_ms,clip (10 Hz)",
+      "E": "E,t_ms,dht_c,dht_rh,baro_hpa,baro_c,light_v,light_x[,baro_rh] (1 Hz; baro_rh from firmware v3.1)"
+     },
+     "sensors": [
+      {
+       "quantity": "wind speed",
+       "sensor": "cup anemometer, 4-20 mA loop into the Pico ADC via a shunt",
+       "unit": "m/s",
+       "rate": "10 Hz",
+       "notes": "Slow response (distance constant about 2-3 m); not turbulence-resolving. clip=1 marks ADC saturation. wind = (i_ma - zero) / 16 mA x range, with the rest current in the header (zero=, firmware v3.2+; earlier firmware assumed 4.00 mA and read about 0.5 m/s low). Empty wind with i_ma below about 3.2 mA means the loop was open or unpowered. A level that stays flat well above zero is a frozen sensor, not wind."
+      },
+      {
+       "quantity": "air temperature",
+       "sensor": "BMP280 or BME280 (header baro=)",
+       "unit": "degC",
+       "rate": "1 Hz",
+       "notes": "Reference air-temperature sensor (air_temp_c). Mount in the sun shield."
+      },
+      {
+       "quantity": "station pressure",
+       "sensor": "BMP280 or BME280 (header baro=)",
+       "unit": "hPa",
+       "rate": "1 Hz",
+       "notes": "Not reduced to sea level."
+      },
+      {
+       "quantity": "relative humidity (baro_rh)",
+       "sensor": "BME280 (firmware v3.1+; empty with a BMP280)",
+       "unit": "%RH",
+       "rate": "1 Hz",
+       "notes": "About +/-3 %RH over 0-100 %RH. Used for rh_pct when the DHT11 has no reading. Measures the air at the sensor, so it reads low when the enclosure is warmer than the outside air."
+      },
+      {
+       "quantity": "temperature, relative humidity",
+       "sensor": "DHT11",
+       "unit": "degC, %RH",
+       "rate": "1 Hz",
+       "notes": "Integer resolution; accuracy about +/-2 degC and +/-5 %RH. Range about 20-90 %RH: firmware v3.0 sends an empty RH when the DHT11 reports 0 (below range)."
+      },
+      {
+       "quantity": "light",
+       "sensor": "LDR (light=ldr) or BPW34 photodiode (light=bpw34)",
+       "unit": "V; ohm (LDR) or uA (BPW34)",
+       "rate": "1 Hz",
+       "notes": "Uncalibrated relative light level."
+      }
+     ],
+     "association": {
+      "window_s": 10.0,
+      "stale_after_s": 5.0,
+      "rule": "Wind statistics use W samples with capture host_received_ns - window_s < host time <= host_received_ns; population std. wind_ti = std/mean, null when mean < 1 m/s. taylor_ok = mean >= 1 m/s and TI < 0.5. Environment fields are the latest E sample at or before the capture; weather_age_s is its age. weather_status: ok (wind and environment both within stale_after_s), stale, missing (no samples), disabled.",
+      "fields": {
+       "air_temp_c": "BMP280/BME280 temperature",
+       "dht_temp_c": "DHT11 temperature",
+       "rh_pct": "DHT11 relative humidity, or BME280 humidity (baro_rh) when the DHT11 has no reading (below about 20 %RH or failed)",
+       "rh_source": "DHT11 or BME280: which sensor rh_pct came from",
+       "pressure_hpa": "BMP280 station pressure",
+       "light_v": "light-sensor voltage",
+       "ldr_ohm": "firmware light_x: LDR resistance (ohm) when light=ldr, photocurrent (uA) when light=bpw34"
+      }
+     },
+     "caveats": [
+      "The cup anemometer has a distance constant of about 2-3 m, so wind statistics are not turbulence-resolving.",
+      "Cn2 is not measured by any of these sensors.",
+      "The BMP280 temperature is the air-temperature sensor; the DHT11 is accurate to about +/-2 degC and +/-5 %RH.",
+      "Empty firmware fields mean a missing sensor or failed read and are stored as null, never 0.",
+      "Times are host receive timestamps (time.time_ns on line receipt), including USB/serial latency. Pico t_ms is an auxiliary uptime counter that wraps."
+     ]
+    }
+   },
+   "capture_count": 5022,
+   "sample_count": 8045244
+  },
+  {
+   "id": "20261112T004007Z-338cc506",
+   "started_utc": "2026-11-12T00:40:07.088+00:00",
+   "ended_utc": "2026-11-12T01:40:07.513+00:00",
+   "status": "complete",
+   "mode": "hardware",
+   "metadata": {
+    "schema_version": 3,
+    "application_version": "0.1.0",
+    "driver_repository": "https://github.com/maccelarimatt/Hantek6254BC-Linux-Driver",
+    "driver_revision": "be5663df4f0a93e96c039071f9502c698da678a1",
+    "settings": {
+     "mode": "hardware",
+     "capture_interval_s": 0,
+     "session_duration_s": 3600,
+     "minimum_free_disk_mb": 1024,
+     "retry_interval_s": 5,
+     "record_on_start": false,
+     "scope": {
+      "sample_rate": 25000,
+      "depth": 16384,
+      "volts_per_div": [
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ],
+      "probe_factors": [
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ],
+      "x_channel": 1,
+      "y_channel": 2,
+      "sum_channel": 3,
+      "store_rate_hz": 2500,
+      "bus": null,
+      "address": null
+     },
+     "calibration": {
+      "x_offset_v": 0.0,
+      "y_offset_v": 0.0,
+      "sum_offset_v": 0.0,
+      "minimum_sum_v": 0.5,
+      "position_model": "difference_over_sum",
+      "x_scale_mm": 5.0,
+      "y_scale_mm": 5.0,
+      "saturation_v": 4.0,
+      "notes": "Thorlabs PDP90A lateral-effect PSD, scales from the manual (Lx = Ly = 10 mm). Position displacement error +/-250 um per the manual; not yet verified against a translation stage."
+     },
+     "experiment": {
+      "title": "Live laser link",
+      "institution": "University of the Witwatersrand",
+      "laboratory": "Optical Communications Lab",
+      "laser": "CW532-005",
+      "wavelength_nm": 532.0,
+      "one_way_distance_m": 150.0,
+      "detector": "PDP90A",
+      "location": "Johannesburg, South Africa",
+      "data_license": "Not specified \u2014 contact the lab for reuse terms",
+      "contact": ""
+     },
+     "weather": {
+      "enabled": true,
+      "port": null,
+      "baud": 115200,
+      "association_window_s": 10.0,
+      "stale_after_s": 5.0
+     }
+    },
+    "time_basis": "UTC host call-start and receive timestamps; sample time is relative within each burst. No hardware UTC timestamp. Bursts are not contiguous.",
+    "statistics": "Voltage mean and population std use all samples. Position mean and radial RMS about the burst centroid use only unclipped samples with corrected SUM >= minimum_sum_v. scintillation_index = var(SUM)/mean(SUM)^2 of the stored band-limited series over valid stored samples; it includes detector and scope noise.",
+    "decimation": {
+     "factor": 10,
+     "taps": 365,
+     "stored": 1602,
+     "bandwidth_hz": 1000.0,
+     "t0_s": 0.00728,
+     "store_rate_hz": 2500,
+     "filter": "Linear-phase Kaiser FIR, unity DC gain, flat to 0.4 x store rate, >= 60 dB attenuation from 0.5 x store rate; valid convolution only (no edge transients)."
+    },
+    "raw_format": "Per-capture NPZ: codes (4,M) int16 = scope ADC codes x 64 about mid-scale after anti-alias filtering and decimation to store_rate_hz; clipped (M) bool, true where any mapped X/Y/SUM sample under the filter reached the ADC rails; t0_s = time of stored sample 0 after the burst's first scope sample. Volts = codes x volts_per_div x probe_factor / (31 x 64). No offset correction applied to archived voltage columns.",
+    "weather": {
+     "enabled": true,
+     "source": "hardware",
+     "device": {
+      "description": "Raspberry Pi Pico W weather station, USB CDC serial",
+      "usb_vid": "0x2E8A",
+      "port": "/dev/ttyACM0",
+      "configured_port": null,
+      "baud": 115200
+     },
+     "header": {
+      "firmware": "pico-weather",
+      "version": "v3.2",
+      "wind": "10Hz",
+      "anemo": "4-20mA",
+      "shunt": "165.0ohm",
+      "range": "30.0m/s",
+      "zero": "3.72mA",
+      "light": "ldr",
+      "r_light": "1000ohm",
+      "baro": "BMP280",
+      "dht": "yes",
+      "pins": "wind:GP26,light:GP28,sda:GP20,scl:GP17,dht:GP21"
+     },
+     "header_note": "Parsed from the firmware's '# ...' header line. If it arrives after the session starts it is filled in when the session ends; null if none was received (for example, the Pico booted before the recorder connected). Every header seen is stored in the weather_headers table.",
+     "line_format": {
+      "W": "W,t_ms,v_adc,i_ma,wind_ms,clip (10 Hz)",
+      "E": "E,t_ms,dht_c,dht_rh,baro_hpa,baro_c,light_v,light_x[,baro_rh] (1 Hz; baro_rh from firmware v3.1)"
+     },
+     "sensors": [
+      {
+       "quantity": "wind speed",
+       "sensor": "cup anemometer, 4-20 mA loop into the Pico ADC via a shunt",
+       "unit": "m/s",
+       "rate": "10 Hz",
+       "notes": "Slow response (distance constant about 2-3 m); not turbulence-resolving. clip=1 marks ADC saturation. wind = (i_ma - zero) / 16 mA x range, with the rest current in the header (zero=, firmware v3.2+; earlier firmware assumed 4.00 mA and read about 0.5 m/s low). Empty wind with i_ma below about 3.2 mA means the loop was open or unpowered. A level that stays flat well above zero is a frozen sensor, not wind."
+      },
+      {
+       "quantity": "air temperature",
+       "sensor": "BMP280 or BME280 (header baro=)",
+       "unit": "degC",
+       "rate": "1 Hz",
+       "notes": "Reference air-temperature sensor (air_temp_c). Mount in the sun shield."
+      },
+      {
+       "quantity": "station pressure",
+       "sensor": "BMP280 or BME280 (header baro=)",
+       "unit": "hPa",
+       "rate": "1 Hz",
+       "notes": "Not reduced to sea level."
+      },
+      {
+       "quantity": "relative humidity (baro_rh)",
+       "sensor": "BME280 (firmware v3.1+; empty with a BMP280)",
+       "unit": "%RH",
+       "rate": "1 Hz",
+       "notes": "About +/-3 %RH over 0-100 %RH. Used for rh_pct when the DHT11 has no reading. Measures the air at the sensor, so it reads low when the enclosure is warmer than the outside air."
+      },
+      {
+       "quantity": "temperature, relative humidity",
+       "sensor": "DHT11",
+       "unit": "degC, %RH",
+       "rate": "1 Hz",
+       "notes": "Integer resolution; accuracy about +/-2 degC and +/-5 %RH. Range about 20-90 %RH: firmware v3.0 sends an empty RH when the DHT11 reports 0 (below range)."
+      },
+      {
+       "quantity": "light",
+       "sensor": "LDR (light=ldr) or BPW34 photodiode (light=bpw34)",
+       "unit": "V; ohm (LDR) or uA (BPW34)",
+       "rate": "1 Hz",
+       "notes": "Uncalibrated relative light level."
+      }
+     ],
+     "association": {
+      "window_s": 10.0,
+      "stale_after_s": 5.0,
+      "rule": "Wind statistics use W samples with capture host_received_ns - window_s < host time <= host_received_ns; population std. wind_ti = std/mean, null when mean < 1 m/s. taylor_ok = mean >= 1 m/s and TI < 0.5. Environment fields are the latest E sample at or before the capture; weather_age_s is its age. weather_status: ok (wind and environment both within stale_after_s), stale, missing (no samples), disabled.",
+      "fields": {
+       "air_temp_c": "BMP280/BME280 temperature",
+       "dht_temp_c": "DHT11 temperature",
+       "rh_pct": "DHT11 relative humidity, or BME280 humidity (baro_rh) when the DHT11 has no reading (below about 20 %RH or failed)",
+       "rh_source": "DHT11 or BME280: which sensor rh_pct came from",
+       "pressure_hpa": "BMP280 station pressure",
+       "light_v": "light-sensor voltage",
+       "ldr_ohm": "firmware light_x: LDR resistance (ohm) when light=ldr, photocurrent (uA) when light=bpw34"
+      }
+     },
+     "caveats": [
+      "The cup anemometer has a distance constant of about 2-3 m, so wind statistics are not turbulence-resolving.",
+      "Cn2 is not measured by any of these sensors.",
+      "The BMP280 temperature is the air-temperature sensor; the DHT11 is accurate to about +/-2 degC and +/-5 %RH.",
+      "Empty firmware fields mean a missing sensor or failed read and are stored as null, never 0.",
+      "Times are host receive timestamps (time.time_ns on line receipt), including USB/serial latency. Pico t_ms is an auxiliary uptime counter that wraps."
+     ]
+    }
+   },
+   "capture_count": 5022,
+   "sample_count": 8045244
+  },
+  {
+   "id": "20261112T014007Z-2572d419",
+   "started_utc": "2026-11-12T01:40:07.517+00:00",
+   "ended_utc": "2026-11-12T02:40:07.945+00:00",
+   "status": "complete",
+   "mode": "hardware",
+   "metadata": {
+    "schema_version": 3,
+    "application_version": "0.1.0",
+    "driver_repository": "https://github.com/maccelarimatt/Hantek6254BC-Linux-Driver",
+    "driver_revision": "be5663df4f0a93e96c039071f9502c698da678a1",
+    "settings": {
+     "mode": "hardware",
+     "capture_interval_s": 0,
+     "session_duration_s": 3600,
+     "minimum_free_disk_mb": 1024,
+     "retry_interval_s": 5,
+     "record_on_start": false,
+     "scope": {
+      "sample_rate": 25000,
+      "depth": 16384,
+      "volts_per_div": [
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ],
+      "probe_factors": [
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ],
+      "x_channel": 1,
+      "y_channel": 2,
+      "sum_channel": 3,
+      "store_rate_hz": 2500,
+      "bus": null,
+      "address": null
+     },
+     "calibration": {
+      "x_offset_v": 0.0,
+      "y_offset_v": 0.0,
+      "sum_offset_v": 0.0,
+      "minimum_sum_v": 0.5,
+      "position_model": "difference_over_sum",
+      "x_scale_mm": 5.0,
+      "y_scale_mm": 5.0,
+      "saturation_v": 4.0,
+      "notes": "Thorlabs PDP90A lateral-effect PSD, scales from the manual (Lx = Ly = 10 mm). Position displacement error +/-250 um per the manual; not yet verified against a translation stage."
+     },
+     "experiment": {
+      "title": "Live laser link",
+      "institution": "University of the Witwatersrand",
+      "laboratory": "Optical Communications Lab",
+      "laser": "CW532-005",
+      "wavelength_nm": 532.0,
+      "one_way_distance_m": 150.0,
+      "detector": "PDP90A",
+      "location": "Johannesburg, South Africa",
+      "data_license": "Not specified \u2014 contact the lab for reuse terms",
+      "contact": ""
+     },
+     "weather": {
+      "enabled": true,
+      "port": null,
+      "baud": 115200,
+      "association_window_s": 10.0,
+      "stale_after_s": 5.0
+     }
+    },
+    "time_basis": "UTC host call-start and receive timestamps; sample time is relative within each burst. No hardware UTC timestamp. Bursts are not contiguous.",
+    "statistics": "Voltage mean and population std use all samples. Position mean and radial RMS about the burst centroid use only unclipped samples with corrected SUM >= minimum_sum_v. scintillation_index = var(SUM)/mean(SUM)^2 of the stored band-limited series over valid stored samples; it includes detector and scope noise.",
+    "decimation": {
+     "factor": 10,
+     "taps": 365,
+     "stored": 1602,
+     "bandwidth_hz": 1000.0,
+     "t0_s": 0.00728,
+     "store_rate_hz": 2500,
+     "filter": "Linear-phase Kaiser FIR, unity DC gain, flat to 0.4 x store rate, >= 60 dB attenuation from 0.5 x store rate; valid convolution only (no edge transients)."
+    },
+    "raw_format": "Per-capture NPZ: codes (4,M) int16 = scope ADC codes x 64 about mid-scale after anti-alias filtering and decimation to store_rate_hz; clipped (M) bool, true where any mapped X/Y/SUM sample under the filter reached the ADC rails; t0_s = time of stored sample 0 after the burst's first scope sample. Volts = codes x volts_per_div x probe_factor / (31 x 64). No offset correction applied to archived voltage columns.",
+    "weather": {
+     "enabled": true,
+     "source": "hardware",
+     "device": {
+      "description": "Raspberry Pi Pico W weather station, USB CDC serial",
+      "usb_vid": "0x2E8A",
+      "port": "/dev/ttyACM0",
+      "configured_port": null,
+      "baud": 115200
+     },
+     "header": {
+      "firmware": "pico-weather",
+      "version": "v3.2",
+      "wind": "10Hz",
+      "anemo": "4-20mA",
+      "shunt": "165.0ohm",
+      "range": "30.0m/s",
+      "zero": "3.72mA",
+      "light": "ldr",
+      "r_light": "1000ohm",
+      "baro": "BMP280",
+      "dht": "yes",
+      "pins": "wind:GP26,light:GP28,sda:GP20,scl:GP17,dht:GP21"
+     },
+     "header_note": "Parsed from the firmware's '# ...' header line. If it arrives after the session starts it is filled in when the session ends; null if none was received (for example, the Pico booted before the recorder connected). Every header seen is stored in the weather_headers table.",
+     "line_format": {
+      "W": "W,t_ms,v_adc,i_ma,wind_ms,clip (10 Hz)",
+      "E": "E,t_ms,dht_c,dht_rh,baro_hpa,baro_c,light_v,light_x[,baro_rh] (1 Hz; baro_rh from firmware v3.1)"
+     },
+     "sensors": [
+      {
+       "quantity": "wind speed",
+       "sensor": "cup anemometer, 4-20 mA loop into the Pico ADC via a shunt",
+       "unit": "m/s",
+       "rate": "10 Hz",
+       "notes": "Slow response (distance constant about 2-3 m); not turbulence-resolving. clip=1 marks ADC saturation. wind = (i_ma - zero) / 16 mA x range, with the rest current in the header (zero=, firmware v3.2+; earlier firmware assumed 4.00 mA and read about 0.5 m/s low). Empty wind with i_ma below about 3.2 mA means the loop was open or unpowered. A level that stays flat well above zero is a frozen sensor, not wind."
+      },
+      {
+       "quantity": "air temperature",
+       "sensor": "BMP280 or BME280 (header baro=)",
+       "unit": "degC",
+       "rate": "1 Hz",
+       "notes": "Reference air-temperature sensor (air_temp_c). Mount in the sun shield."
+      },
+      {
+       "quantity": "station pressure",
+       "sensor": "BMP280 or BME280 (header baro=)",
+       "unit": "hPa",
+       "rate": "1 Hz",
+       "notes": "Not reduced to sea level."
+      },
+      {
+       "quantity": "relative humidity (baro_rh)",
+       "sensor": "BME280 (firmware v3.1+; empty with a BMP280)",
+       "unit": "%RH",
+       "rate": "1 Hz",
+       "notes": "About +/-3 %RH over 0-100 %RH. Used for rh_pct when the DHT11 has no reading. Measures the air at the sensor, so it reads low when the enclosure is warmer than the outside air."
+      },
+      {
+       "quantity": "temperature, relative humidity",
+       "sensor": "DHT11",
+       "unit": "degC, %RH",
+       "rate": "1 Hz",
+       "notes": "Integer resolution; accuracy about +/-2 degC and +/-5 %RH. Range about 20-90 %RH: firmware v3.0 sends an empty RH when the DHT11 reports 0 (below range)."
+      },
+      {
+       "quantity": "light",
+       "sensor": "LDR (light=ldr) or BPW34 photodiode (light=bpw34)",
+       "unit": "V; ohm (LDR) or uA (BPW34)",
+       "rate": "1 Hz",
+       "notes": "Uncalibrated relative light level."
+      }
+     ],
+     "association": {
+      "window_s": 10.0,
+      "stale_after_s": 5.0,
+      "rule": "Wind statistics use W samples with capture host_received_ns - window_s < host time <= host_received_ns; population std. wind_ti = std/mean, null when mean < 1 m/s. taylor_ok = mean >= 1 m/s and TI < 0.5. Environment fields are the latest E sample at or before the capture; weather_age_s is its age. weather_status: ok (wind and environment both within stale_after_s), stale, missing (no samples), disabled.",
+      "fields": {
+       "air_temp_c": "BMP280/BME280 temperature",
+       "dht_temp_c": "DHT11 temperature",
+       "rh_pct": "DHT11 relative humidity, or BME280 humidity (baro_rh) when the DHT11 has no reading (below about 20 %RH or failed)",
+       "rh_source": "DHT11 or BME280: which sensor rh_pct came from",
+       "pressure_hpa": "BMP280 station pressure",
+       "light_v": "light-sensor voltage",
+       "ldr_ohm": "firmware light_x: LDR resistance (ohm) when light=ldr, photocurrent (uA) when light=bpw34"
+      }
+     },
+     "caveats": [
+      "The cup anemometer has a distance constant of about 2-3 m, so wind statistics are not turbulence-resolving.",
+      "Cn2 is not measured by any of these sensors.",
+      "The BMP280 temperature is the air-temperature sensor; the DHT11 is accurate to about +/-2 degC and +/-5 %RH.",
+      "Empty firmware fields mean a missing sensor or failed read and are stored as null, never 0.",
+      "Times are host receive timestamps (time.time_ns on line receipt), including USB/serial latency. Pico t_ms is an auxiliary uptime counter that wraps."
+     ]
+    }
+   },
+   "capture_count": 5022,
+   "sample_count": 8045244
+  },
+  {
+   "id": "20261112T024007Z-998a2739",
+   "started_utc": "2026-11-12T02:40:07.949+00:00",
+   "ended_utc": "2026-11-12T03:40:08.347+00:00",
+   "status": "complete",
+   "mode": "hardware",
+   "metadata": {
+    "schema_version": 3,
+    "application_version": "0.1.0",
+    "driver_repository": "https://github.com/maccelarimatt/Hantek6254BC-Linux-Driver",
+    "driver_revision": "be5663df4f0a93e96c039071f9502c698da678a1",
+    "settings": {
+     "mode": "hardware",
+     "capture_interval_s": 0,
+     "session_duration_s": 3600,
+     "minimum_free_disk_mb": 1024,
+     "retry_interval_s": 5,
+     "record_on_start": false,
+     "scope": {
+      "sample_rate": 25000,
+      "depth": 16384,
+      "volts_per_div": [
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ],
+      "probe_factors": [
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ],
+      "x_channel": 1,
+      "y_channel": 2,
+      "sum_channel": 3,
+      "store_rate_hz": 2500,
+      "bus": null,
+      "address": null
+     },
+     "calibration": {
+      "x_offset_v": 0.0,
+      "y_offset_v": 0.0,
+      "sum_offset_v": 0.0,
+      "minimum_sum_v": 0.5,
+      "position_model": "difference_over_sum",
+      "x_scale_mm": 5.0,
+      "y_scale_mm": 5.0,
+      "saturation_v": 4.0,
+      "notes": "Thorlabs PDP90A lateral-effect PSD, scales from the manual (Lx = Ly = 10 mm). Position displacement error +/-250 um per the manual; not yet verified against a translation stage."
+     },
+     "experiment": {
+      "title": "Live laser link",
+      "institution": "University of the Witwatersrand",
+      "laboratory": "Optical Communications Lab",
+      "laser": "CW532-005",
+      "wavelength_nm": 532.0,
+      "one_way_distance_m": 150.0,
+      "detector": "PDP90A",
+      "location": "Johannesburg, South Africa",
+      "data_license": "Not specified \u2014 contact the lab for reuse terms",
+      "contact": ""
+     },
+     "weather": {
+      "enabled": true,
+      "port": null,
+      "baud": 115200,
+      "association_window_s": 10.0,
+      "stale_after_s": 5.0
+     }
+    },
+    "time_basis": "UTC host call-start and receive timestamps; sample time is relative within each burst. No hardware UTC timestamp. Bursts are not contiguous.",
+    "statistics": "Voltage mean and population std use all samples. Position mean and radial RMS about the burst centroid use only unclipped samples with corrected SUM >= minimum_sum_v. scintillation_index = var(SUM)/mean(SUM)^2 of the stored band-limited series over valid stored samples; it includes detector and scope noise.",
+    "decimation": {
+     "factor": 10,
+     "taps": 365,
+     "stored": 1602,
+     "bandwidth_hz": 1000.0,
+     "t0_s": 0.00728,
+     "store_rate_hz": 2500,
+     "filter": "Linear-phase Kaiser FIR, unity DC gain, flat to 0.4 x store rate, >= 60 dB attenuation from 0.5 x store rate; valid convolution only (no edge transients)."
+    },
+    "raw_format": "Per-capture NPZ: codes (4,M) int16 = scope ADC codes x 64 about mid-scale after anti-alias filtering and decimation to store_rate_hz; clipped (M) bool, true where any mapped X/Y/SUM sample under the filter reached the ADC rails; t0_s = time of stored sample 0 after the burst's first scope sample. Volts = codes x volts_per_div x probe_factor / (31 x 64). No offset correction applied to archived voltage columns.",
+    "weather": {
+     "enabled": true,
+     "source": "hardware",
+     "device": {
+      "description": "Raspberry Pi Pico W weather station, USB CDC serial",
+      "usb_vid": "0x2E8A",
+      "port": "/dev/ttyACM0",
+      "configured_port": null,
+      "baud": 115200
+     },
+     "header": {
+      "firmware": "pico-weather",
+      "version": "v3.2",
+      "wind": "10Hz",
+      "anemo": "4-20mA",
+      "shunt": "165.0ohm",
+      "range": "30.0m/s",
+      "zero": "3.72mA",
+      "light": "ldr",
+      "r_light": "1000ohm",
+      "baro": "BMP280",
+      "dht": "yes",
+      "pins": "wind:GP26,light:GP28,sda:GP20,scl:GP17,dht:GP21"
+     },
+     "header_note": "Parsed from the firmware's '# ...' header line. If it arrives after the session starts it is filled in when the session ends; null if none was received (for example, the Pico booted before the recorder connected). Every header seen is stored in the weather_headers table.",
+     "line_format": {
+      "W": "W,t_ms,v_adc,i_ma,wind_ms,clip (10 Hz)",
+      "E": "E,t_ms,dht_c,dht_rh,baro_hpa,baro_c,light_v,light_x[,baro_rh] (1 Hz; baro_rh from firmware v3.1)"
+     },
+     "sensors": [
+      {
+       "quantity": "wind speed",
+       "sensor": "cup anemometer, 4-20 mA loop into the Pico ADC via a shunt",
+       "unit": "m/s",
+       "rate": "10 Hz",
+       "notes": "Slow response (distance constant about 2-3 m); not turbulence-resolving. clip=1 marks ADC saturation. wind = (i_ma - zero) / 16 mA x range, with the rest current in the header (zero=, firmware v3.2+; earlier firmware assumed 4.00 mA and read about 0.5 m/s low). Empty wind with i_ma below about 3.2 mA means the loop was open or unpowered. A level that stays flat well above zero is a frozen sensor, not wind."
+      },
+      {
+       "quantity": "air temperature",
+       "sensor": "BMP280 or BME280 (header baro=)",
+       "unit": "degC",
+       "rate": "1 Hz",
+       "notes": "Reference air-temperature sensor (air_temp_c). Mount in the sun shield."
+      },
+      {
+       "quantity": "station pressure",
+       "sensor": "BMP280 or BME280 (header baro=)",
+       "unit": "hPa",
+       "rate": "1 Hz",
+       "notes": "Not reduced to sea level."
+      },
+      {
+       "quantity": "relative humidity (baro_rh)",
+       "sensor": "BME280 (firmware v3.1+; empty with a BMP280)",
+       "unit": "%RH",
+       "rate": "1 Hz",
+       "notes": "About +/-3 %RH over 0-100 %RH. Used for rh_pct when the DHT11 has no reading. Measures the air at the sensor, so it reads low when the enclosure is warmer than the outside air."
+      },
+      {
+       "quantity": "temperature, relative humidity",
+       "sensor": "DHT11",
+       "unit": "degC, %RH",
+       "rate": "1 Hz",
+       "notes": "Integer resolution; accuracy about +/-2 degC and +/-5 %RH. Range about 20-90 %RH: firmware v3.0 sends an empty RH when the DHT11 reports 0 (below range)."
+      },
+      {
+       "quantity": "light",
+       "sensor": "LDR (light=ldr) or BPW34 photodiode (light=bpw34)",
+       "unit": "V; ohm (LDR) or uA (BPW34)",
+       "rate": "1 Hz",
+       "notes": "Uncalibrated relative light level."
+      }
+     ],
+     "association": {
+      "window_s": 10.0,
+      "stale_after_s": 5.0,
+      "rule": "Wind statistics use W samples with capture host_received_ns - window_s < host time <= host_received_ns; population std. wind_ti = std/mean, null when mean < 1 m/s. taylor_ok = mean >= 1 m/s and TI < 0.5. Environment fields are the latest E sample at or before the capture; weather_age_s is its age. weather_status: ok (wind and environment both within stale_after_s), stale, missing (no samples), disabled.",
+      "fields": {
+       "air_temp_c": "BMP280/BME280 temperature",
+       "dht_temp_c": "DHT11 temperature",
+       "rh_pct": "DHT11 relative humidity, or BME280 humidity (baro_rh) when the DHT11 has no reading (below about 20 %RH or failed)",
+       "rh_source": "DHT11 or BME280: which sensor rh_pct came from",
+       "pressure_hpa": "BMP280 station pressure",
+       "light_v": "light-sensor voltage",
+       "ldr_ohm": "firmware light_x: LDR resistance (ohm) when light=ldr, photocurrent (uA) when light=bpw34"
+      }
+     },
+     "caveats": [
+      "The cup anemometer has a distance constant of about 2-3 m, so wind statistics are not turbulence-resolving.",
+      "Cn2 is not measured by any of these sensors.",
+      "The BMP280 temperature is the air-temperature sensor; the DHT11 is accurate to about +/-2 degC and +/-5 %RH.",
+      "Empty firmware fields mean a missing sensor or failed read and are stored as null, never 0.",
+      "Times are host receive timestamps (time.time_ns on line receipt), including USB/serial latency. Pico t_ms is an auxiliary uptime counter that wraps."
+     ]
+    }
+   },
+   "capture_count": 5020,
+   "sample_count": 8042040
+  },
+  {
+   "id": "20261112T034008Z-3b4a9e20",
+   "started_utc": "2026-11-12T03:40:08.351+00:00",
+   "ended_utc": "2026-11-12T04:40:08.585+00:00",
+   "status": "complete",
+   "mode": "hardware",
+   "metadata": {
+    "schema_version": 3,
+    "application_version": "0.1.0",
+    "driver_repository": "https://github.com/maccelarimatt/Hantek6254BC-Linux-Driver",
+    "driver_revision": "be5663df4f0a93e96c039071f9502c698da678a1",
+    "settings": {
+     "mode": "hardware",
+     "capture_interval_s": 0,
+     "session_duration_s": 3600,
+     "minimum_free_disk_mb": 1024,
+     "retry_interval_s": 5,
+     "record_on_start": false,
+     "scope": {
+      "sample_rate": 25000,
+      "depth": 16384,
+      "volts_per_div": [
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ],
+      "probe_factors": [
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ],
+      "x_channel": 1,
+      "y_channel": 2,
+      "sum_channel": 3,
+      "store_rate_hz": 2500,
+      "bus": null,
+      "address": null
+     },
+     "calibration": {
+      "x_offset_v": 0.0,
+      "y_offset_v": 0.0,
+      "sum_offset_v": 0.0,
+      "minimum_sum_v": 0.5,
+      "position_model": "difference_over_sum",
+      "x_scale_mm": 5.0,
+      "y_scale_mm": 5.0,
+      "saturation_v": 4.0,
+      "notes": "Thorlabs PDP90A lateral-effect PSD, scales from the manual (Lx = Ly = 10 mm). Position displacement error +/-250 um per the manual; not yet verified against a translation stage."
+     },
+     "experiment": {
+      "title": "Live laser link",
+      "institution": "University of the Witwatersrand",
+      "laboratory": "Optical Communications Lab",
+      "laser": "CW532-005",
+      "wavelength_nm": 532.0,
+      "one_way_distance_m": 150.0,
+      "detector": "PDP90A",
+      "location": "Johannesburg, South Africa",
+      "data_license": "Not specified \u2014 contact the lab for reuse terms",
+      "contact": ""
+     },
+     "weather": {
+      "enabled": true,
+      "port": null,
+      "baud": 115200,
+      "association_window_s": 10.0,
+      "stale_after_s": 5.0
+     }
+    },
+    "time_basis": "UTC host call-start and receive timestamps; sample time is relative within each burst. No hardware UTC timestamp. Bursts are not contiguous.",
+    "statistics": "Voltage mean and population std use all samples. Position mean and radial RMS about the burst centroid use only unclipped samples with corrected SUM >= minimum_sum_v. scintillation_index = var(SUM)/mean(SUM)^2 of the stored band-limited series over valid stored samples; it includes detector and scope noise.",
+    "decimation": {
+     "factor": 10,
+     "taps": 365,
+     "stored": 1602,
+     "bandwidth_hz": 1000.0,
+     "t0_s": 0.00728,
+     "store_rate_hz": 2500,
+     "filter": "Linear-phase Kaiser FIR, unity DC gain, flat to 0.4 x store rate, >= 60 dB attenuation from 0.5 x store rate; valid convolution only (no edge transients)."
+    },
+    "raw_format": "Per-capture NPZ: codes (4,M) int16 = scope ADC codes x 64 about mid-scale after anti-alias filtering and decimation to store_rate_hz; clipped (M) bool, true where any mapped X/Y/SUM sample under the filter reached the ADC rails; t0_s = time of stored sample 0 after the burst's first scope sample. Volts = codes x volts_per_div x probe_factor / (31 x 64). No offset correction applied to archived voltage columns.",
+    "weather": {
+     "enabled": true,
+     "source": "hardware",
+     "device": {
+      "description": "Raspberry Pi Pico W weather station, USB CDC serial",
+      "usb_vid": "0x2E8A",
+      "port": "/dev/ttyACM0",
+      "configured_port": null,
+      "baud": 115200
+     },
+     "header": {
+      "firmware": "pico-weather",
+      "version": "v3.2",
+      "wind": "10Hz",
+      "anemo": "4-20mA",
+      "shunt": "165.0ohm",
+      "range": "30.0m/s",
+      "zero": "3.72mA",
+      "light": "ldr",
+      "r_light": "1000ohm",
+      "baro": "BMP280",
+      "dht": "yes",
+      "pins": "wind:GP26,light:GP28,sda:GP20,scl:GP17,dht:GP21"
+     },
+     "header_note": "Parsed from the firmware's '# ...' header line. If it arrives after the session starts it is filled in when the session ends; null if none was received (for example, the Pico booted before the recorder connected). Every header seen is stored in the weather_headers table.",
+     "line_format": {
+      "W": "W,t_ms,v_adc,i_ma,wind_ms,clip (10 Hz)",
+      "E": "E,t_ms,dht_c,dht_rh,baro_hpa,baro_c,light_v,light_x[,baro_rh] (1 Hz; baro_rh from firmware v3.1)"
+     },
+     "sensors": [
+      {
+       "quantity": "wind speed",
+       "sensor": "cup anemometer, 4-20 mA loop into the Pico ADC via a shunt",
+       "unit": "m/s",
+       "rate": "10 Hz",
+       "notes": "Slow response (distance constant about 2-3 m); not turbulence-resolving. clip=1 marks ADC saturation. wind = (i_ma - zero) / 16 mA x range, with the rest current in the header (zero=, firmware v3.2+; earlier firmware assumed 4.00 mA and read about 0.5 m/s low). Empty wind with i_ma below about 3.2 mA means the loop was open or unpowered. A level that stays flat well above zero is a frozen sensor, not wind."
+      },
+      {
+       "quantity": "air temperature",
+       "sensor": "BMP280 or BME280 (header baro=)",
+       "unit": "degC",
+       "rate": "1 Hz",
+       "notes": "Reference air-temperature sensor (air_temp_c). Mount in the sun shield."
+      },
+      {
+       "quantity": "station pressure",
+       "sensor": "BMP280 or BME280 (header baro=)",
+       "unit": "hPa",
+       "rate": "1 Hz",
+       "notes": "Not reduced to sea level."
+      },
+      {
+       "quantity": "relative humidity (baro_rh)",
+       "sensor": "BME280 (firmware v3.1+; empty with a BMP280)",
+       "unit": "%RH",
+       "rate": "1 Hz",
+       "notes": "About +/-3 %RH over 0-100 %RH. Used for rh_pct when the DHT11 has no reading. Measures the air at the sensor, so it reads low when the enclosure is warmer than the outside air."
+      },
+      {
+       "quantity": "temperature, relative humidity",
+       "sensor": "DHT11",
+       "unit": "degC, %RH",
+       "rate": "1 Hz",
+       "notes": "Integer resolution; accuracy about +/-2 degC and +/-5 %RH. Range about 20-90 %RH: firmware v3.0 sends an empty RH when the DHT11 reports 0 (below range)."
+      },
+      {
+       "quantity": "light",
+       "sensor": "LDR (light=ldr) or BPW34 photodiode (light=bpw34)",
+       "unit": "V; ohm (LDR) or uA (BPW34)",
+       "rate": "1 Hz",
+       "notes": "Uncalibrated relative light level."
+      }
+     ],
+     "association": {
+      "window_s": 10.0,
+      "stale_after_s": 5.0,
+      "rule": "Wind statistics use W samples with capture host_received_ns - window_s < host time <= host_received_ns; population std. wind_ti = std/mean, null when mean < 1 m/s. taylor_ok = mean >= 1 m/s and TI < 0.5. Environment fields are the latest E sample at or before the capture; weather_age_s is its age. weather_status: ok (wind and environment both within stale_after_s), stale, missing (no samples), disabled.",
+      "fields": {
+       "air_temp_c": "BMP280/BME280 temperature",
+       "dht_temp_c": "DHT11 temperature",
+       "rh_pct": "DHT11 relative humidity, or BME280 humidity (baro_rh) when the DHT11 has no reading (below about 20 %RH or failed)",
+       "rh_source": "DHT11 or BME280: which sensor rh_pct came from",
+       "pressure_hpa": "BMP280 station pressure",
+       "light_v": "light-sensor voltage",
+       "ldr_ohm": "firmware light_x: LDR resistance (ohm) when light=ldr, photocurrent (uA) when light=bpw34"
+      }
+     },
+     "caveats": [
+      "The cup anemometer has a distance constant of about 2-3 m, so wind statistics are not turbulence-resolving.",
+      "Cn2 is not measured by any of these sensors.",
+      "The BMP280 temperature is the air-temperature sensor; the DHT11 is accurate to about +/-2 degC and +/-5 %RH.",
+      "Empty firmware fields mean a missing sensor or failed read and are stored as null, never 0.",
+      "Times are host receive timestamps (time.time_ns on line receipt), including USB/serial latency. Pico t_ms is an auxiliary uptime counter that wraps."
+     ]
+    }
+   },
+   "capture_count": 5048,
+   "sample_count": 8086896
+  },
+  {
+   "id": "20261112T044008Z-659dd7c9",
+   "started_utc": "2026-11-12T04:40:08.589+00:00",
+   "ended_utc": "2026-11-12T05:40:08.955+00:00",
+   "status": "complete",
+   "mode": "hardware",
+   "metadata": {
+    "schema_version": 3,
+    "application_version": "0.1.0",
+    "driver_repository": "https://github.com/maccelarimatt/Hantek6254BC-Linux-Driver",
+    "driver_revision": "be5663df4f0a93e96c039071f9502c698da678a1",
+    "settings": {
+     "mode": "hardware",
+     "capture_interval_s": 0,
+     "session_duration_s": 3600,
+     "minimum_free_disk_mb": 1024,
+     "retry_interval_s": 5,
+     "record_on_start": false,
+     "scope": {
+      "sample_rate": 25000,
+      "depth": 16384,
+      "volts_per_div": [
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ],
+      "probe_factors": [
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ],
+      "x_channel": 1,
+      "y_channel": 2,
+      "sum_channel": 3,
+      "store_rate_hz": 2500,
+      "bus": null,
+      "address": null
+     },
+     "calibration": {
+      "x_offset_v": 0.0,
+      "y_offset_v": 0.0,
+      "sum_offset_v": 0.0,
+      "minimum_sum_v": 0.5,
+      "position_model": "difference_over_sum",
+      "x_scale_mm": 5.0,
+      "y_scale_mm": 5.0,
+      "saturation_v": 4.0,
+      "notes": "Thorlabs PDP90A lateral-effect PSD, scales from the manual (Lx = Ly = 10 mm). Position displacement error +/-250 um per the manual; not yet verified against a translation stage."
+     },
+     "experiment": {
+      "title": "Live laser link",
+      "institution": "University of the Witwatersrand",
+      "laboratory": "Optical Communications Lab",
+      "laser": "CW532-005",
+      "wavelength_nm": 532.0,
+      "one_way_distance_m": 150.0,
+      "detector": "PDP90A",
+      "location": "Johannesburg, South Africa",
+      "data_license": "Not specified \u2014 contact the lab for reuse terms",
+      "contact": ""
+     },
+     "weather": {
+      "enabled": true,
+      "port": null,
+      "baud": 115200,
+      "association_window_s": 10.0,
+      "stale_after_s": 5.0
+     }
+    },
+    "time_basis": "UTC host call-start and receive timestamps; sample time is relative within each burst. No hardware UTC timestamp. Bursts are not contiguous.",
+    "statistics": "Voltage mean and population std use all samples. Position mean and radial RMS about the burst centroid use only unclipped samples with corrected SUM >= minimum_sum_v. scintillation_index = var(SUM)/mean(SUM)^2 of the stored band-limited series over valid stored samples; it includes detector and scope noise.",
+    "decimation": {
+     "factor": 10,
+     "taps": 365,
+     "stored": 1602,
+     "bandwidth_hz": 1000.0,
+     "t0_s": 0.00728,
+     "store_rate_hz": 2500,
+     "filter": "Linear-phase Kaiser FIR, unity DC gain, flat to 0.4 x store rate, >= 60 dB attenuation from 0.5 x store rate; valid convolution only (no edge transients)."
+    },
+    "raw_format": "Per-capture NPZ: codes (4,M) int16 = scope ADC codes x 64 about mid-scale after anti-alias filtering and decimation to store_rate_hz; clipped (M) bool, true where any mapped X/Y/SUM sample under the filter reached the ADC rails; t0_s = time of stored sample 0 after the burst's first scope sample. Volts = codes x volts_per_div x probe_factor / (31 x 64). No offset correction applied to archived voltage columns.",
+    "weather": {
+     "enabled": true,
+     "source": "hardware",
+     "device": {
+      "description": "Raspberry Pi Pico W weather station, USB CDC serial",
+      "usb_vid": "0x2E8A",
+      "port": "/dev/ttyACM0",
+      "configured_port": null,
+      "baud": 115200
+     },
+     "header": {
+      "firmware": "pico-weather",
+      "version": "v3.2",
+      "wind": "10Hz",
+      "anemo": "4-20mA",
+      "shunt": "165.0ohm",
+      "range": "30.0m/s",
+      "zero": "3.72mA",
+      "light": "ldr",
+      "r_light": "1000ohm",
+      "baro": "BMP280",
+      "dht": "yes",
+      "pins": "wind:GP26,light:GP28,sda:GP20,scl:GP17,dht:GP21"
+     },
+     "header_note": "Parsed from the firmware's '# ...' header line. If it arrives after the session starts it is filled in when the session ends; null if none was received (for example, the Pico booted before the recorder connected). Every header seen is stored in the weather_headers table.",
+     "line_format": {
+      "W": "W,t_ms,v_adc,i_ma,wind_ms,clip (10 Hz)",
+      "E": "E,t_ms,dht_c,dht_rh,baro_hpa,baro_c,light_v,light_x[,baro_rh] (1 Hz; baro_rh from firmware v3.1)"
+     },
+     "sensors": [
+      {
+       "quantity": "wind speed",
+       "sensor": "cup anemometer, 4-20 mA loop into the Pico ADC via a shunt",
+       "unit": "m/s",
+       "rate": "10 Hz",
+       "notes": "Slow response (distance constant about 2-3 m); not turbulence-resolving. clip=1 marks ADC saturation. wind = (i_ma - zero) / 16 mA x range, with the rest current in the header (zero=, firmware v3.2+; earlier firmware assumed 4.00 mA and read about 0.5 m/s low). Empty wind with i_ma below about 3.2 mA means the loop was open or unpowered. A level that stays flat well above zero is a frozen sensor, not wind."
+      },
+      {
+       "quantity": "air temperature",
+       "sensor": "BMP280 or BME280 (header baro=)",
+       "unit": "degC",
+       "rate": "1 Hz",
+       "notes": "Reference air-temperature sensor (air_temp_c). Mount in the sun shield."
+      },
+      {
+       "quantity": "station pressure",
+       "sensor": "BMP280 or BME280 (header baro=)",
+       "unit": "hPa",
+       "rate": "1 Hz",
+       "notes": "Not reduced to sea level."
+      },
+      {
+       "quantity": "relative humidity (baro_rh)",
+       "sensor": "BME280 (firmware v3.1+; empty with a BMP280)",
+       "unit": "%RH",
+       "rate": "1 Hz",
+       "notes": "About +/-3 %RH over 0-100 %RH. Used for rh_pct when the DHT11 has no reading. Measures the air at the sensor, so it reads low when the enclosure is warmer than the outside air."
+      },
+      {
+       "quantity": "temperature, relative humidity",
+       "sensor": "DHT11",
+       "unit": "degC, %RH",
+       "rate": "1 Hz",
+       "notes": "Integer resolution; accuracy about +/-2 degC and +/-5 %RH. Range about 20-90 %RH: firmware v3.0 sends an empty RH when the DHT11 reports 0 (below range)."
+      },
+      {
+       "quantity": "light",
+       "sensor": "LDR (light=ldr) or BPW34 photodiode (light=bpw34)",
+       "unit": "V; ohm (LDR) or uA (BPW34)",
+       "rate": "1 Hz",
+       "notes": "Uncalibrated relative light level."
+      }
+     ],
+     "association": {
+      "window_s": 10.0,
+      "stale_after_s": 5.0,
+      "rule": "Wind statistics use W samples with capture host_received_ns - window_s < host time <= host_received_ns; population std. wind_ti = std/mean, null when mean < 1 m/s. taylor_ok = mean >= 1 m/s and TI < 0.5. Environment fields are the latest E sample at or before the capture; weather_age_s is its age. weather_status: ok (wind and environment both within stale_after_s), stale, missing (no samples), disabled.",
+      "fields": {
+       "air_temp_c": "BMP280/BME280 temperature",
+       "dht_temp_c": "DHT11 temperature",
+       "rh_pct": "DHT11 relative humidity, or BME280 humidity (baro_rh) when the DHT11 has no reading (below about 20 %RH or failed)",
+       "rh_source": "DHT11 or BME280: which sensor rh_pct came from",
+       "pressure_hpa": "BMP280 station pressure",
+       "light_v": "light-sensor voltage",
+       "ldr_ohm": "firmware light_x: LDR resistance (ohm) when light=ldr, photocurrent (uA) when light=bpw34"
+      }
+     },
+     "caveats": [
+      "The cup anemometer has a distance constant of about 2-3 m, so wind statistics are not turbulence-resolving.",
+      "Cn2 is not measured by any of these sensors.",
+      "The BMP280 temperature is the air-temperature sensor; the DHT11 is accurate to about +/-2 degC and +/-5 %RH.",
+      "Empty firmware fields mean a missing sensor or failed read and are stored as null, never 0.",
+      "Times are host receive timestamps (time.time_ns on line receipt), including USB/serial latency. Pico t_ms is an auxiliary uptime counter that wraps."
+     ]
+    }
+   },
+   "capture_count": 5051,
+   "sample_count": 8091702
+  },
+  {
+   "id": "20261112T054008Z-a647ff6e",
+   "started_utc": "2026-11-12T05:40:08.959+00:00",
+   "ended_utc": "2026-11-12T06:13:38.386+00:00",
+   "status": "complete",
+   "mode": "hardware",
+   "metadata": {
+    "schema_version": 3,
+    "application_version": "0.1.0",
+    "driver_repository": "https://github.com/maccelarimatt/Hantek6254BC-Linux-Driver",
+    "driver_revision": "be5663df4f0a93e96c039071f9502c698da678a1",
+    "settings": {
+     "mode": "hardware",
+     "capture_interval_s": 0,
+     "session_duration_s": 3600,
+     "minimum_free_disk_mb": 1024,
+     "retry_interval_s": 5,
+     "record_on_start": false,
+     "scope": {
+      "sample_rate": 25000,
+      "depth": 16384,
+      "volts_per_div": [
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ],
+      "probe_factors": [
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ],
+      "x_channel": 1,
+      "y_channel": 2,
+      "sum_channel": 3,
+      "store_rate_hz": 2500,
+      "bus": null,
+      "address": null
+     },
+     "calibration": {
+      "x_offset_v": 0.0,
+      "y_offset_v": 0.0,
+      "sum_offset_v": 0.0,
+      "minimum_sum_v": 0.5,
+      "position_model": "difference_over_sum",
+      "x_scale_mm": 5.0,
+      "y_scale_mm": 5.0,
+      "saturation_v": 4.0,
+      "notes": "Thorlabs PDP90A lateral-effect PSD, scales from the manual (Lx = Ly = 10 mm). Position displacement error +/-250 um per the manual; not yet verified against a translation stage."
+     },
+     "experiment": {
+      "title": "Live laser link",
+      "institution": "University of the Witwatersrand",
+      "laboratory": "Optical Communications Lab",
+      "laser": "CW532-005",
+      "wavelength_nm": 532.0,
+      "one_way_distance_m": 150.0,
+      "detector": "PDP90A",
+      "location": "Johannesburg, South Africa",
+      "data_license": "Not specified \u2014 contact the lab for reuse terms",
+      "contact": ""
+     },
+     "weather": {
+      "enabled": true,
+      "port": null,
+      "baud": 115200,
+      "association_window_s": 10.0,
+      "stale_after_s": 5.0
+     }
+    },
+    "time_basis": "UTC host call-start and receive timestamps; sample time is relative within each burst. No hardware UTC timestamp. Bursts are not contiguous.",
+    "statistics": "Voltage mean and population std use all samples. Position mean and radial RMS about the burst centroid use only unclipped samples with corrected SUM >= minimum_sum_v. scintillation_index = var(SUM)/mean(SUM)^2 of the stored band-limited series over valid stored samples; it includes detector and scope noise.",
+    "decimation": {
+     "factor": 10,
+     "taps": 365,
+     "stored": 1602,
+     "bandwidth_hz": 1000.0,
+     "t0_s": 0.00728,
+     "store_rate_hz": 2500,
+     "filter": "Linear-phase Kaiser FIR, unity DC gain, flat to 0.4 x store rate, >= 60 dB attenuation from 0.5 x store rate; valid convolution only (no edge transients)."
+    },
+    "raw_format": "Per-capture NPZ: codes (4,M) int16 = scope ADC codes x 64 about mid-scale after anti-alias filtering and decimation to store_rate_hz; clipped (M) bool, true where any mapped X/Y/SUM sample under the filter reached the ADC rails; t0_s = time of stored sample 0 after the burst's first scope sample. Volts = codes x volts_per_div x probe_factor / (31 x 64). No offset correction applied to archived voltage columns.",
+    "weather": {
+     "enabled": true,
+     "source": "hardware",
+     "device": {
+      "description": "Raspberry Pi Pico W weather station, USB CDC serial",
+      "usb_vid": "0x2E8A",
+      "port": "/dev/ttyACM0",
+      "configured_port": null,
+      "baud": 115200
+     },
+     "header": {
+      "firmware": "pico-weather",
+      "version": "v3.2",
+      "wind": "10Hz",
+      "anemo": "4-20mA",
+      "shunt": "165.0ohm",
+      "range": "30.0m/s",
+      "zero": "3.72mA",
+      "light": "ldr",
+      "r_light": "1000ohm",
+      "baro": "BMP280",
+      "dht": "yes",
+      "pins": "wind:GP26,light:GP28,sda:GP20,scl:GP17,dht:GP21"
+     },
+     "header_note": "Parsed from the firmware's '# ...' header line. If it arrives after the session starts it is filled in when the session ends; null if none was received (for example, the Pico booted before the recorder connected). Every header seen is stored in the weather_headers table.",
+     "line_format": {
+      "W": "W,t_ms,v_adc,i_ma,wind_ms,clip (10 Hz)",
+      "E": "E,t_ms,dht_c,dht_rh,baro_hpa,baro_c,light_v,light_x[,baro_rh] (1 Hz; baro_rh from firmware v3.1)"
+     },
+     "sensors": [
+      {
+       "quantity": "wind speed",
+       "sensor": "cup anemometer, 4-20 mA loop into the Pico ADC via a shunt",
+       "unit": "m/s",
+       "rate": "10 Hz",
+       "notes": "Slow response (distance constant about 2-3 m); not turbulence-resolving. clip=1 marks ADC saturation. wind = (i_ma - zero) / 16 mA x range, with the rest current in the header (zero=, firmware v3.2+; earlier firmware assumed 4.00 mA and read about 0.5 m/s low). Empty wind with i_ma below about 3.2 mA means the loop was open or unpowered. A level that stays flat well above zero is a frozen sensor, not wind."
+      },
+      {
+       "quantity": "air temperature",
+       "sensor": "BMP280 or BME280 (header baro=)",
+       "unit": "degC",
+       "rate": "1 Hz",
+       "notes": "Reference air-temperature sensor (air_temp_c). Mount in the sun shield."
+      },
+      {
+       "quantity": "station pressure",
+       "sensor": "BMP280 or BME280 (header baro=)",
+       "unit": "hPa",
+       "rate": "1 Hz",
+       "notes": "Not reduced to sea level."
+      },
+      {
+       "quantity": "relative humidity (baro_rh)",
+       "sensor": "BME280 (firmware v3.1+; empty with a BMP280)",
+       "unit": "%RH",
+       "rate": "1 Hz",
+       "notes": "About +/-3 %RH over 0-100 %RH. Used for rh_pct when the DHT11 has no reading. Measures the air at the sensor, so it reads low when the enclosure is warmer than the outside air."
+      },
+      {
+       "quantity": "temperature, relative humidity",
+       "sensor": "DHT11",
+       "unit": "degC, %RH",
+       "rate": "1 Hz",
+       "notes": "Integer resolution; accuracy about +/-2 degC and +/-5 %RH. Range about 20-90 %RH: firmware v3.0 sends an empty RH when the DHT11 reports 0 (below range)."
+      },
+      {
+       "quantity": "light",
+       "sensor": "LDR (light=ldr) or BPW34 photodiode (light=bpw34)",
+       "unit": "V; ohm (LDR) or uA (BPW34)",
+       "rate": "1 Hz",
+       "notes": "Uncalibrated relative light level."
+      }
+     ],
+     "association": {
+      "window_s": 10.0,
+      "stale_after_s": 5.0,
+      "rule": "Wind statistics use W samples with capture host_received_ns - window_s < host time <= host_received_ns; population std. wind_ti = std/mean, null when mean < 1 m/s. taylor_ok = mean >= 1 m/s and TI < 0.5. Environment fields are the latest E sample at or before the capture; weather_age_s is its age. weather_status: ok (wind and environment both within stale_after_s), stale, missing (no samples), disabled.",
+      "fields": {
+       "air_temp_c": "BMP280/BME280 temperature",
+       "dht_temp_c": "DHT11 temperature",
+       "rh_pct": "DHT11 relative humidity, or BME280 humidity (baro_rh) when the DHT11 has no reading (below about 20 %RH or failed)",
+       "rh_source": "DHT11 or BME280: which sensor rh_pct came from",
+       "pressure_hpa": "BMP280 station pressure",
+       "light_v": "light-sensor voltage",
+       "ldr_ohm": "firmware light_x: LDR resistance (ohm) when light=ldr, photocurrent (uA) when light=bpw34"
+      }
+     },
+     "caveats": [
+      "The cup anemometer has a distance constant of about 2-3 m, so wind statistics are not turbulence-resolving.",
+      "Cn2 is not measured by any of these sensors.",
+      "The BMP280 temperature is the air-temperature sensor; the DHT11 is accurate to about +/-2 degC and +/-5 %RH.",
+      "Empty firmware fields mean a missing sensor or failed read and are stored as null, never 0.",
+      "Times are host receive timestamps (time.time_ns on line receipt), including USB/serial latency. Pico t_ms is an auxiliary uptime counter that wraps."
+     ]
+    }
+   },
+   "capture_count": 2819,
+   "sample_count": 4516038
+  }
+ ]
+}
