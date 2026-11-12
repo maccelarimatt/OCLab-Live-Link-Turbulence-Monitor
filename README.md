@@ -159,6 +159,7 @@ W,t_ms,v_adc,i_ma,wind_ms,clip                                  # 10 Hz
 E,t_ms,dht_c,dht_rh,baro_hpa,baro_c,light_v,light_x[,baro_rh]   # 1 Hz; baro_rh (BME280 humidity) from firmware v3.1
 ```
 
+- The wiring is drawn in [diagrams/pico_weather_logger_schematic.png](diagrams/pico_weather_logger_schematic.png). As built, the SCL and DHT11 wires are swapped relative to that drawing (SCL on GP17, DHT11 on GP21), and the pressure module has identified itself as both a BMP280 and a BME280 on different days; the firmware detects both.
 - Firmware v3.0 pins: wind GP26 (4–20 mA across 165 Ω), LDR GP28 (LDR to 3V3, 1 kΩ to AGND; `light_x` = LDR ohms), BMP280/BME280 on I2C0 SDA GP20 at 0x76, and SCL/DHT11 on GP21/GP17, detected at start-up so either way round works. Constants (range, shunt, `LIGHT_MODE`, `R_LIGHT`) are at the top of `main.py`. Loop current below 3.6 mA (open loop) gives an empty wind field. The header is repeated every 60 s so a late-connecting host still records it.
 - **Anemometer zero.** Wind = (i_ma − zero) / 16 mA × range. The rest current measured by this circuit is 3.72 mA (0.614 V with the cups still, the same on three days), not the nominal 4.00 mA, and is set as `ANEMO_ZERO_MA` in `main.py` and reported in the header (`zero=3.72mA`). Firmware before v3.2 used 4.00 mA, so its `wind_ms` reads about 0.5 m/s low and shows 0 below about 0.5 m/s; recompute those from the stored `i_ma` as `max(0, (i_ma − 3.72) / 16 × 30)`. Nothing is zeroed automatically at start-up. To re-measure the zero, hold the cups still for a minute and average `i_ma`. The 16 mA span and 30 m/s range are the sensor's nominal values and have not been checked against a reference anemometer.
 - **Anemometer faults.** An empty `wind_ms` with `i_ma` near 0 means the loop is open or the sensor unpowered (loose J1 plug or no 5 V); the dashboard shows "No signal". After some power-ups the sensor has held a fixed current well above zero (flat to a few mV), which is not wind: firmware v3.2 prints a `# warning wind_frozen ...` line each minute while that lasts and the dashboard shows it. Re-plug the sensor until it rests near 0.61 V.
@@ -241,6 +242,17 @@ PY
 ```
 
 Use a separate disk for backups where possible. To move the archive, stop the recorder first and move the entire data directory, including any `-wal`/`-shm` files. Point `data_dir` at the new location before restarting. There is no automatic pruning or remote replication.
+
+### Publishing a dataset
+
+`tools/export_dataset.py` writes chosen sessions as a compact folder for sharing: one lossless HDF5 file per session (shuffle + gzip, about a third smaller than the archive and readable in Python, MATLAB, Julia and R), a per-capture summary CSV, the weather samples, session metadata and checksums. It reads the archive read-only, so it is safe while the recorder runs, and verifies every waveform file against the archive.
+
+```sh
+.venv/bin/python -m pip install -e '.[export]'
+.venv/bin/python tools/export_dataset.py --data-dir data --out datasets/NAME --from 2026-11-11T17:00 --to 2026-11-12T07:00   # session start times, UTC
+```
+
+A night at the default settings is about 280 MB, with every file under 25 MB (GitHub rejects files over 100 MB). [datasets/2026-11-11_night/](datasets/2026-11-11_night/) is the first published recording; its README describes the format and that night's limitations.
 
 ## API
 
