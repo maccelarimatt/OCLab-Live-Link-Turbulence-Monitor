@@ -1,4 +1,4 @@
-"""Animated GIF of the beam moving on the detector plane over an exported night.
+"""Animated GIF of the beam tracing its path on the detector over an exported night.
 
 Usage (the commands that produced the committed GIFs):
     python tools/animate_beam_wander.py datasets/2026-11-11_night
@@ -6,12 +6,17 @@ Usage (the commands that produced the committed GIFs):
 
 Needs numpy, pandas, h5py, matplotlib and pillow. Writes <dataset>/plots/09_beam_wander.gif.
 
-The frames are spread evenly over the captures that have a beam position (same rule as
-plot_wander_weather.py: >= 50 unsaturated stored samples), not over clock time, so long saturated
-stretches are skipped rather than shown as empty frames; the clock and the timeline say where each
-frame sits in the night. Each frame shows every 16th stored position sample (2500/16 = 156 per
-second) of its captures as a grey cloud, and the centre of every capture so far as a dot coloured
-by time of night.
+Each capture with a position (same rule as plot_wander_weather.py: >= 50 unsaturated stored samples)
+is split into --bins equal stretches (4 by default, about 0.16 s each) and the mean position and SUM
+of each stretch is drawn as a faint dot. The line traces the beam's path through those points as a
+trailing running mean over --smooth seconds of data (5 by default), so it shows how the beam moved
+while the dots show the faster wander around it. The line breaks where consecutive captures are more
+than 5 s apart (a saturated stretch). Line and dots are coloured by received SUM (usable samples
+only, 0.5 to 4 V) and fade out over --trail frames.
+
+A cursor sweeps through the captures with a position at an even rate, so long saturated stretches
+are skipped instead of shown as empty frames; the clock and the SUM timeline below say where in the
+night each frame is.
 """
 from __future__ import annotations
 
@@ -27,13 +32,19 @@ import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.collections import LineCollection
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from plot_wander_weather import (GRID, INK, INK2, MUTED, SURFACE, exclude_before, local,  # noqa: E402
-                                 night_label, style, wander_from_waveforms)
+from plot_wander_weather import (C, INK, INK2, MUTED, SUM_MAX, SUM_MIN, SURFACE,  # noqa: E402
+                                 exclude_before, local, night_label, style, wander_from_waveforms)
 
-SAMPLES_EVERY = 16
+MAX_JOIN_S = 5.0     # do not join captures further apart than this
+
+# Received intensity: one green ramp (the SUM colour of the other graphs), light = weak, dark = strong.
+SUM_CMAP = matplotlib.colors.LinearSegmentedColormap.from_list(
+    "sum", ["#a6dcc4", C["sum"], "#063d2c"])
+SUM_NORM = matplotlib.colors.Normalize(SUM_MIN, SUM_MAX)
 
 
 def main():
@@ -41,109 +52,156 @@ def main():
     ap.add_argument("dataset", type=Path)
     ap.add_argument("--exclude-before", metavar="UTC", help="drop positions before this UTC time")
     ap.add_argument("--seconds", type=float, default=10.0, help="length of one loop (default 10)")
-    ap.add_argument("--fps", type=int, default=20)
+    ap.add_argument("--fps", type=int, default=25)
+    ap.add_argument("--bins", type=int, default=4, help="points per capture on the line (default 4)")
+    ap.add_argument("--trail", type=float, default=6, help="frames over which the line fades (default 6)")
+    ap.add_argument("--smooth", type=float, default=5.0, help="seconds of data averaged along the line (default 5)")
     args = ap.parse_args()
     folder = args.dataset
     style()
 
     print("Reading positions from the waveforms…", file=sys.stderr)
-    wan, xs, ys = wander_from_waveforms(folder, samples_every=SAMPLES_EVERY)
+    wan, bx, by, bs = wander_from_waveforms(folder, bins=args.bins)
     exclude_before(wan, args.exclude_before)
     t_all = local(wan.host_started_ns)
     ok = wan.centroid_x_mm.notna().to_numpy()
     order = np.argsort(wan.host_started_ns.to_numpy()[ok], kind="stable")
     idx = np.flatnonzero(ok)[order]
+    n_cap = len(idx)
     t = t_all[idx]
-    cx, cy = wan.centroid_x_mm.to_numpy()[idx], wan.centroid_y_mm.to_numpy()[idx]
-    sx, sy = xs[idx], ys[idx]
+    ns = wan.host_started_ns.to_numpy()[idx]
+
+    # Flatten to one point sequence: capture-major, stretch-minor.
+    P = args.bins
+    X, Y, S = bx[idx].ravel(), by[idx].ravel(), bs[idx].ravel()
+    cap_of = np.repeat(np.arange(n_cap), P)
+    finite = np.isfinite(X) & np.isfinite(Y)
+    # Segment i joins point i to i+1: both finite, and same capture or close consecutive captures.
+    gap_ok = np.ones(len(X) - 1, bool)
+    boundary = (np.arange(1, len(X)) % P) == 0
+    cap_gap = np.r_[np.diff(ns) / 1e9, np.inf]                  # gap after each capture
+    gap_ok[boundary] = cap_gap[cap_of[:-1][boundary]] <= MAX_JOIN_S
+    # The line: trailing mean over --smooth seconds within each run of joined captures, so it traces
+    # the beam's path; the unsmoothed points are drawn as faint dots around it.
+    run = np.r_[0, np.cumsum(~gap_ok)]
+    w = max(1, int(round(args.smooth / np.median(np.diff(ns) / 1e9) * P)))
+    roll = lambda v: pd.Series(v).groupby(run).transform(
+        lambda r: r.rolling(w, min_periods=max(1, w // 3)).mean()).to_numpy()
+    LX, LY, LS = roll(X), roll(Y), roll(S)
+    lfin = np.isfinite(LX) & np.isfinite(LY)
+    seg_ok = lfin[:-1] & lfin[1:] & gap_ok
+    seg_s = (LS[:-1] + LS[1:]) / 2
 
     E = pd.read_csv(folder / "weather.csv.gz", usecols=["kind", "host_received_ns", "light_v"])
     E = E[E.kind == "E"]
     light = pd.Series(E.light_v.to_numpy(), index=local(E.host_received_ns)).resample("1min").mean()
     dawn = light[(light > 0.1) & (light.index.hour < 12)].index[0]
 
-    # Square view around where the beam actually went (0.2-99.8 percentile of all samples).
-    px, py = sx[np.isfinite(sx)], sy[np.isfinite(sy)]
-    lo = np.array([np.percentile(px, 0.2), np.percentile(py, 0.2)])
-    hi = np.array([np.percentile(px, 99.8), np.percentile(py, 99.8)])
+    # Square view around where the beam went (0.2-99.8 percentile of the line's points).
+    lo = np.array([np.nanpercentile(X, 0.2), np.nanpercentile(Y, 0.2)])
+    hi = np.array([np.nanpercentile(X, 99.8), np.nanpercentile(Y, 99.8)])
     mid, half = (lo + hi) / 2, (hi - lo).max() / 2 * 1.12
 
-    # Timeline: per-minute radial wander over the whole recording.
-    rad = pd.Series(wan.wander_radial_mm.to_numpy(), index=t_all).resample("1min").median()
+    # SUM over the whole recording, from every capture (all samples, as in graph 06).
+    cap = pd.read_csv(folder / "captures.csv.gz", usecols=["capture_id", "sum_mean_v"])
+    cap = wan[["capture_id"]].merge(cap, on="capture_id", how="left")
+    sm = pd.Series(cap.sum_mean_v.to_numpy(), index=t_all).resample("1min")
+    s_mean, s_lo, s_hi = sm.mean(), sm.min(), sm.max()
     t0, t1 = t_all.min(), t_all.max()
-    tmap = matplotlib.colors.ListedColormap(plt.get_cmap("plasma")(np.linspace(0.0, 0.85, 256)))
-    norm = matplotlib.colors.Normalize(mdates.date2num(t0), mdates.date2num(t1))
-    cnum = mdates.date2num(t.to_pydatetime())
 
     # ---- figure, built once; each frame updates artists
     fig = plt.figure(figsize=(7.2, 9.0), dpi=100)
-    ax = fig.add_axes([0.13, 0.29, 0.82, 0.555])
-    tl = fig.add_axes([0.13, 0.085, 0.82, 0.115])
-    cbar = fig.add_axes([0.13, 0.065, 0.82, 0.013])
+    ax = fig.add_axes([0.13, 0.295, 0.80, 0.53])
+    tl = fig.add_axes([0.13, 0.07, 0.80, 0.135])
+    cb = fig.add_axes([0.945, 0.07, 0.016, 0.135])
     fig.text(0.04, 0.978, "Beam wander on the detector", fontsize=15, color=INK, va="top")
-    fig.text(0.04, 0.947, f"{night_label(t_all)}  ·  {len(t):,} captures with ≥50 unsaturated samples "
-             f"({len(t) / len(t_all):.0%} of all)", fontsize=9.5, color=INK2, va="top")
+    gap = np.median(np.diff(ns)) / 1e9
+    fig.text(0.04, 0.947, f"{night_label(t_all)}  ·  colour = received SUM  ·  fades over ~"
+             f"{args.trail * (n_cap - 1) / (args.seconds * args.fps) * gap / 60:.0f} min of data\n"
+             f"line = {args.smooth:g} s running mean of position  ·  dots = {gap / P:.2f} s means",
+             fontsize=9.5, color=INK2, va="top", linespacing=1.5)
     clock = fig.text(0.95, 0.982, "", fontsize=20, color=INK, va="top", ha="right")
-    info = fig.text(0.04, 0.918, "", fontsize=9.5, color=INK2, va="top", linespacing=1.5)
+    info = fig.text(0.04, 0.893, "", fontsize=9.5, color=INK, va="top", linespacing=1.5)
 
     ax.set_xlim(mid[0] - half, mid[0] + half)
     ax.set_ylim(mid[1] - half, mid[1] + half)
     ax.set_aspect("equal")
     ax.set_xlabel("X, mm from detector centre")
     ax.set_ylabel("Y, mm from detector centre")
-    trail = ax.scatter([], [], s=5, c=[], cmap=tmap, norm=norm, linewidths=0, alpha=0.7)
-    cloud = ax.scatter([], [], s=3, color=INK, alpha=0.18, linewidths=0)
-    here = ax.scatter([], [], s=90, facecolors="none", edgecolors=INK, linewidths=1.6)
+    dots = ax.scatter([], [], s=5, linewidths=0)
+    trace = LineCollection([], linewidths=2.0, capstyle="round", joinstyle="round")
+    ax.add_collection(trace)
+    head = ax.scatter([], [], s=70, linewidths=1.6, edgecolors=INK, zorder=3)
 
-    tl.plot(rad.index, rad.to_numpy(), color=INK2, linewidth=1)
+    tl.fill_between(s_mean.index, s_lo.to_numpy(), s_hi.to_numpy(), color=C["sum"], alpha=0.2, linewidth=0)
+    tl.plot(s_mean.index, s_mean.to_numpy(), color=C["sum"], linewidth=1.1)
+    tl.axhline(4.0, color=INK2, linewidth=0.8)
     tl.set_xlim(t0, t1)
-    tl.set_ylim(0, np.nanpercentile(rad, 99.5) * 1.15)
-    tl.set_title("Radial wander (mm), 1-minute median  ·  gaps = detector saturated", fontsize=9.5, pad=4)
+    tl.set_ylim(-0.1, 4.4)
+    tl.set_yticks([0, 2, 4])
+    tl.set_title("Received SUM (V), 1-minute mean and range  ·  4 V = detector limit", fontsize=9.5, pad=4)
     tl.tick_params(labelsize=8.5)
     tl.xaxis.set_major_locator(mdates.HourLocator(interval=2))
     tl.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
-    tl.tick_params(axis="x", labelbottom=False)
+    tl.set_xlabel("Local time (SAST)", fontsize=9)
     tl.axvline(dawn, color=MUTED, linewidth=0.8)
-    cursor = tl.axvspan(t0, t0, color=INK, alpha=0.25, linewidth=0)
+    window = tl.axvspan(t0, t0, color=INK, alpha=0.18, linewidth=0)
     needle = tl.axvline(t0, color=INK, linewidth=1.4)
-    grad = np.linspace(0, 1, 512)[None, :]
-    cbar.imshow(grad, aspect="auto", cmap=tmap, extent=[mdates.date2num(t0), mdates.date2num(t1), 0, 1])
-    cbar.set_xlim(mdates.date2num(t0), mdates.date2num(t1))
-    cbar.set_yticks([])
-    cbar.grid(False)
-    cbar.xaxis.set_major_locator(mdates.HourLocator(interval=2))
-    cbar.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
-    cbar.tick_params(labelsize=8.5, length=0)
-    for s in cbar.spines.values():
-        s.set_visible(False)
-    cbar.set_xlabel("Local time (SAST)  ·  dot colour = time of night", fontsize=9)
+    # Colour key on the same SUM scale as the timeline's y-axis.
+    cb.imshow(np.linspace(SUM_MIN, SUM_MAX, 256)[:, None], aspect="auto", origin="lower",
+              cmap=SUM_CMAP, norm=SUM_NORM, extent=[0, 1, SUM_MIN, SUM_MAX])
+    cb.set_ylim(*tl.get_ylim())
+    cb.set_xticks([])
+    cb.yaxis.tick_right()
+    cb.set_yticks([0.5, 2, 4])
+    cb.tick_params(labelsize=8, length=0)
+    cb.grid(False)
+    for sp in cb.spines.values():
+        sp.set_visible(False)
 
     hold = 500                                     # last frame held, inside the requested length
     step = int(round(100 / args.fps)) * 10         # GIF frame timing is in 10 ms units
     n_frames = int((args.seconds * 1000 - hold) // step) + 1
-    groups = np.array_split(np.arange(len(t)), n_frames)
+    cursor = np.linspace(0, n_cap - 1, n_frames)   # capture index at the head of the line, per frame
+    per_frame = (n_cap - 1) / (n_frames - 1)
+    span = args.trail * per_frame                  # captures in the visible trail
     frames = []
-    print(f"Rendering {n_frames} frames…", file=sys.stderr)
-    for k, g in enumerate(groups):
-        if len(g) == 0:
-            continue
-        a, b = g[0], g[-1]
-        trail.set_offsets(np.c_[cx[:b + 1], cy[:b + 1]])
-        trail.set_array(cnum[:b + 1])
-        gx, gy = sx[g].ravel(), sy[g].ravel()
-        keep = np.isfinite(gx)
-        cloud.set_offsets(np.c_[gx[keep], gy[keep]])
-        here.set_offsets([[np.nanmean(cx[g]), np.nanmean(cy[g])]])
-        clock.set_text(f"{t[b]:%H:%M} SAST")
-        lines = [f"{t[a]:%H:%M} to {t[b]:%H:%M}, {len(g)} captures  ·  wander "
-                 f"X {np.nanmedian(wan.wander_x_mm.to_numpy()[idx[g]]):.3f} mm, "
-                 f"Y {np.nanmedian(wan.wander_y_mm.to_numpy()[idx[g]]):.3f} mm (median)",
-                 "after first daylight: positions pulled toward centre" if t[b] >= dawn else ""]
+    print(f"Rendering {n_frames} frames, {per_frame:.0f} captures per frame…", file=sys.stderr)
+    for k, c in enumerate(cursor):
+        last = int(c)
+        first = max(0, int(np.floor(c - span)))
+        a, b = first * P, (last + 1) * P - 1           # segment index range
+        segs = np.arange(a, b)
+        segs = segs[seg_ok[segs]]
+        age = (c - cap_of[segs]) / span                # 0 = newest, 1 = fully faded
+        alpha = np.clip(1 - age, 0, 1) ** 1.6
+        rgba = SUM_CMAP(SUM_NORM(seg_s[segs]))
+        rgba[:, 3] = alpha
+        trace.set_segments(np.stack([np.c_[LX[segs], LY[segs]], np.c_[LX[segs + 1], LY[segs + 1]]], axis=1))
+        trace.set_color(rgba)
+        pts = np.arange(first * P, (last + 1) * P)
+        pts = pts[finite[pts]]
+        d_rgba = SUM_CMAP(SUM_NORM(S[pts]))
+        d_rgba[:, 3] = 0.35 * np.clip(1 - (c - cap_of[pts]) / span, 0, 1) ** 1.6
+        dots.set_offsets(np.c_[X[pts], Y[pts]])
+        dots.set_facecolors(d_rgba)
+        hp = np.flatnonzero(lfin[first * P:(last + 1) * P])
+        if len(hp):
+            j = first * P + hp[-1]
+            head.set_offsets([[LX[j], LY[j]]])
+            head.set_facecolors([SUM_CMAP(SUM_NORM(LS[j]))])
+        clock.set_text(f"{t[last]:%H:%M} SAST")
+        recent = slice(max(0, last - int(np.ceil(per_frame))), last + 1)
+        lines = [f"{t[recent.start]:%H:%M} to {t[last]:%H:%M}:  SUM "
+                 f"{np.nanmean(S[recent.start * P:recent.stop * P]):.2f} V (usable samples)"
+                 f"  ·  wander X {np.nanmedian(wan.wander_x_mm.to_numpy()[idx[recent]]):.3f} mm, "
+                 f"Y {np.nanmedian(wan.wander_y_mm.to_numpy()[idx[recent]]):.3f} mm",
+                 "after first daylight: positions pulled toward centre" if t[last] >= dawn else ""]
         info.set_text("\n".join(lines))
-        x0, x1 = mdates.date2num(t[a]), mdates.date2num(t[b])
-        cursor.set_x(x0)
-        cursor.set_width(x1 - x0)
-        needle.set_xdata([t[b], t[b]])
+        x0, x1 = mdates.date2num(t[first]), mdates.date2num(t[last])
+        window.set_x(x0)
+        window.set_width(x1 - x0)
+        needle.set_xdata([t[last], t[last]])
         buf = io.BytesIO()
         fig.savefig(buf, format="png", facecolor=SURFACE)
         frames.append(Image.open(buf).convert("RGB"))
@@ -152,7 +210,11 @@ def main():
     plt.close(fig)
 
     # One shared palette keeps colours steady from frame to frame and the file small.
-    pal = frames[len(frames) // 2].quantize(colors=255, method=Image.Quantize.MEDIANCUT)
+    sample = frames[:: max(1, len(frames) // 12)]
+    sheet = Image.new("RGB", (sample[0].width, sample[0].height * len(sample)))
+    for i, f in enumerate(sample):
+        sheet.paste(f, (0, i * f.height))
+    pal = sheet.quantize(colors=255, method=Image.Quantize.MEDIANCUT)
     q = [f.quantize(palette=pal, dither=Image.Dither.NONE) for f in frames]
     durations = [step] * (len(q) - 1) + [hold]
     out = folder / "plots" / "09_beam_wander.gif"

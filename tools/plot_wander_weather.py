@@ -37,6 +37,7 @@ SAST = "Africa/Johannesburg"
 MM_PER_UNIT = 5.0           # PDP90A: 10 mm sensor length, 5 mm per unit of X/SUM
 SUM_MIN, SUM_MAX = 0.5, 4.0
 MIN_VALID = 50              # stored samples (20 ms) needed before a capture's wander is used
+BIN_MIN_VALID = 10          # valid samples needed in one stretch of a capture (animation)
 
 INK, INK2, MUTED = "#1d1d1b", "#55554f", "#8a8a84"
 GRID, SURFACE = "#e6e6e1", "#fcfcfa"
@@ -46,13 +47,15 @@ C = {"x": "#2f78d8", "y": "#e8692f", "sum": "#18a878", "wind": "#6a55d8",
 
 # ---------------------------------------------------------------- data
 
-def wander_from_waveforms(folder: Path, samples_every: int = 0):
+def wander_from_waveforms(folder: Path, bins: int = 0):
     """Per-capture X/Y wander and centroid (mm) from the stored waveforms.
 
-    With samples_every > 0 also returns every samples_every-th position sample of each capture as
-    two float32 arrays (captures, k), NaN where the sample is not valid.
+    With bins > 0 also splits each capture into `bins` equal stretches of time and returns the mean
+    X and Y position (mm) and mean SUM (V) of the valid samples in each, as three float32 arrays
+    (captures, bins); NaN where a stretch has fewer than BIN_MIN_VALID valid samples or the capture
+    has no wander value.
     """
-    rows, keep_x, keep_y = [], [], []
+    rows, keep = [], []
     for path in sorted((folder / "waveforms").glob("*.h5")):
         with h5py.File(path) as f:
             vpc = f.attrs["volts_per_count"]
@@ -80,15 +83,21 @@ def wander_from_waveforms(folder: Path, samples_every: int = 0):
                 rows.append(pd.DataFrame({"capture_id": ids[a:b], "host_started_ns": start[a:b],
                                           "n_valid_stored": nv, "wander_x_mm": sx, "wander_y_mm": sy,
                                           "centroid_x_mm": cx, "centroid_y_mm": cy}))
-                if samples_every:
-                    bad = (nv < MIN_VALID)[:, None]
-                    keep_x.append(np.where(bad, np.nan, px[:, ::samples_every]).astype(np.float32))
-                    keep_y.append(np.where(bad, np.nan, py[:, ::samples_every]).astype(np.float32))
+                if bins:
+                    w = px.shape[1] // bins
+                    ps = np.where(valid, s, np.nan)
+                    shape = (len(px), bins, w)
+                    cnt = valid[:, :bins * w].reshape(shape).sum(axis=2)
+                    bad = (cnt < BIN_MIN_VALID) | (nv < MIN_VALID)[:, None]
+                    with _quiet():
+                        means = [np.nanmean(v[:, :bins * w].reshape(shape), axis=2) for v in (px, py, ps)]
+                    keep.append(np.stack([np.where(bad, np.nan, m) for m in means]).astype(np.float32))
         print(f"  {path.name}: {n} captures", file=sys.stderr)
     out = pd.concat(rows, ignore_index=True)
     out["wander_radial_mm"] = np.hypot(out.wander_x_mm, out.wander_y_mm)
-    if samples_every:
-        return out, np.concatenate(keep_x), np.concatenate(keep_y)
+    if bins:
+        bx, by, bs = np.concatenate(keep, axis=1)
+        return out, bx, by, bs
     return out
 
 

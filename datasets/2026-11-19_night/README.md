@@ -99,7 +99,7 @@ python tools/animate_beam_wander.py datasets/2026-11-19_night --exclude-before 2
 - `06_sum_wind_light.png`: SUM signal, wind speed and light level.
 - `07_wander_xy_weather.png`: beam wander in X and Y separately, with every weather measurement.
 - `08_wander_vs_weather.png`: wander X and Y against wind speed and air temperature, one dot per minute before first daylight, coloured by time of night.
-- `09_beam_wander.gif`: a 10-second loop of the beam moving on the detector over the night.
+- `09_beam_wander.gif`: a 10-second loop of the beam tracing its path on the detector through the night, as a fading line coloured by received SUM, with the SUM signal over the night below.
 
 Wander X and Y here are the standard deviations of 5·X/SUM and 5·Y/SUM within each burst, from the stored 0 to 1 kHz waveforms, for bursts with at least 50 unsaturated samples. They come out at about half the recorder's `wander_rms` (radial, full 25 kS/s band), which also includes digitiser noise up to 12.5 kHz, so do not compare the two directly.
 
