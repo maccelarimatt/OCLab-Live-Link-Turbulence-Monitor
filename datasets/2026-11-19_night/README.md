@@ -38,7 +38,7 @@ Recorder settings, calibration and weather-station firmware (v3.2) were identica
 | `captures.csv.gz` | One row per capture: timestamps, voltage statistics, position, wander, scintillation index, quality fractions and the weather associated with that capture | 12 MB |
 | `weather.csv.gz` | Every weather sample: `kind` = `W` (wind, 10 Hz) or `E` (environment, 1 Hz), including the raw line from the station | 13 MB |
 | `sessions.json` | Session records with the full settings, calibration and weather-station metadata | 0.1 MB |
-| `plots/` | Five overview graphs of the night | 2 MB |
+| `plots/` | Eight graphs of the night (01 to 08) and an animation (09), plus `wander_xy_per_capture.csv.gz` | 7 MB |
 | `checksums.sha256` | SHA-256 of the data files; check with `sha256sum -c checksums.sha256` | |
 
 All waveform data is lossless with respect to the recorder's archive: each HDF5 file was read back and compared with the archive when it was written.
@@ -88,6 +88,20 @@ python tools/export_dataset.py --data-dir data --out datasets/2026-11-19_night -
 ```
 
 The graphs in `plots/` show one-minute values over the whole night.
+
+Graphs 01 to 05 come from the export. Graphs 06 to 09 and `plots/wander_xy_per_capture.csv.gz` were made afterwards with:
+
+```sh
+python tools/plot_wander_weather.py datasets/2026-11-19_night --exclude-before 2026-11-19T18:16Z
+python tools/animate_beam_wander.py datasets/2026-11-19_night --exclude-before 2026-11-19T18:16Z
+```
+
+- `06_sum_wind_light.png`: SUM signal, wind speed and light level.
+- `07_wander_xy_weather.png`: beam wander in X and Y separately, with every weather measurement.
+- `08_wander_vs_weather.png`: wander X and Y against wind speed and air temperature, one dot per minute before first daylight, coloured by time of night.
+- `09_beam_wander.gif`: a 10-second loop of the beam tracing its path on the detector through the night, as a fading line coloured by received SUM, with the SUM signal over the night below.
+
+Wander X and Y here are the standard deviations of 5·X/SUM and 5·Y/SUM within each burst, from the stored 0 to 1 kHz waveforms, for bursts with at least 50 unsaturated samples. They come out at about half the recorder's `wander_rms` (radial, full 25 kS/s band), which also includes digitiser noise up to 12.5 kHz, so do not compare the two directly.
 
 ## Reuse
 
