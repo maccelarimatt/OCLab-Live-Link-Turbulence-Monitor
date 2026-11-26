@@ -21,6 +21,7 @@ export = ["h5py>=3.10,<4"]   # tools/export_dataset.py
 
 [project.scripts]
 oclab = "oclab.__main__:main"
+oclab-voa = "oclab.voa.cli:main"   # VOA turbulence playback (firmware/voa_player)
 
 [tool.setuptools.packages.find]
 where = ["src"]

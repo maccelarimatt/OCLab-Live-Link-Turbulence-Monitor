@@ -26,6 +26,7 @@ The Linux PC must have direct USB access to the scope. The same PC serves the we
 - Public CSV summaries, compressed raw CSV downloads, metadata JSON, and a documented read-only API.
 - A Raspberry Pi Pico W weather station (cup anemometer, BMP280, DHT11, light sensor) recorded continuously in its own thread, with wind statistics and environment values attached to every capture.
 - Explicit simulation mode. Hardware errors never switch to synthetic data.
+- Playback of recorded received-power fading through a MEMS variable optical attenuator, driven at 1 kHz by an Arduino (`oclab-voa`, see [Turbulence playback through a MEMS VOA](#turbulence-playback-through-a-mems-voa)).
 
 ## Quick start on Linux
 
@@ -254,6 +255,129 @@ Use a separate disk for backups where possible. To move the archive, stop the re
 
 A night at the default settings is about 280 MB, with every file under 25 MB (GitHub rejects files over 100 MB). [datasets/2026-11-11_night/](datasets/2026-11-11_night/) is the first published recording; its README describes the format and that night's limitations.
 
+## Turbulence playback through a MEMS VOA
+
+`oclab-voa` replays recorded received-power fading in the lab. A MEMS variable optical attenuator (VOA) in the RF-over-fibre link that carries the 5G modem (USRP B210) is driven at exactly 1 kHz by an Arduino. The host package is [src/oclab/voa/](src/oclab/voa/), and the firmware is [firmware/voa_player/voa_player.ino](firmware/voa_player/voa_player.ino). Both the published datasets (HDF5) and the recorder's SQLite archive can be read directly; the archive is opened read-only, so playback can be prepared while the recorder runs. The recorder itself is unchanged.
+
+> **The recordings so far are burst-mode, not continuous.** Each burst stores 0.641 s. A new burst starts every 0.711 s, so about 70 ms after every burst (10 % of the time) was never recorded. The longest truly continuous stretch is therefore one burst. `prepare` refuses a window with gaps unless `--join-bursts` is given. With it, the bursts are joined end to end. The trace then has a seam at every burst boundary and plays about 11 % faster than real time, and the provenance file records `"bursts_joined": true` with the time left out. Describe such runs as emulation driven by recorded data, not as a replay of a continuous record. A recording that is continuous at 1 kHz or faster needs no flag and is used as it is.
+
+### What is played
+
+- **The fading.** Only SUM is used: the VOA cannot reproduce pointing, so X and Y are ignored. The played quantity is `h(t) = (SUM(t) − dark) / mean(SUM − dark)` over the chosen window. SUM is not calibrated in watts, so only its relative fluctuation is replayed.
+- **Rate.** Faster sources are low-pass filtered and resampled to 1 kHz with a linear-phase Kaiser FIR (the recorder's own design), flat to 400 Hz and at least 60 dB down from 500 Hz. For 2,500 Sa/s data that is 2/5 with 183 taps. 1 kHz data is used as it is. Slower data is interpolated and flagged, because interpolation cannot add the missing fluctuations.
+- **Bad samples.** Samples where SUM is saturated (`saturation_v`, 4.0 V for the PDP90A), at the scope rail, or below `minimum_sum_v` are kept but marked in a `flagged` column. Their fractions go into the provenance. The archive's `clipped` flag covers X, Y *or* SUM, so it is reported but not used to flag SUM.
+- **Dark.** Give the beam-blocked SUM with `--dark`. Without it, 0 V is assumed and the provenance says so. `inspect` lists stretches where SUM sat near 0 V as candidates. On 19 November, SUM was −0.6 mV from 18:06:41 to 18:14:05 UTC.
+- **Conversion.** The target power is `mean × h(t)`, where the mean defaults to −15 dBm with a µW calibration. It is clipped to the calibrated range: no more than 95 % of the 0 V transmission, and no less than the deepest calibrated point. It is then converted to a drive voltage by inverting the measured calibration, interpolating log power against voltage on a curve forced to be monotonic. The recorded values never go to the VOA directly: a bright VOA would invert them. Before playing, the scintillation index (of the trace and as played) and the clipped fractions are printed.
+
+### Wiring
+
+| Part | Connection |
+|---|---|
+| VOA | Fibermart MEMS-VOA-S-Sta-5.5, bright type: 0 V gives maximum transmission. At least 40 dB range, 0.4 dB insertion loss, response at most 2 ms (10 to 90 %). Drive 0 to 6.5 V, never more. |
+| Arduino | Uno clone (ATmega328P, CH340), `/dev/ttyUSB0`, 115200 baud |
+| D9 | Timer1 10-bit fast PWM at 15.625 kHz. Level n = 0 to 1024 gives n/1024 of the measured 5V pin. n = 0 disconnects the timer and holds D9 low, so 0 V is a true 0 V. |
+| Filter | 1 kΩ / 100 nF, then 10 kΩ / 10 nF |
+| Buffer | LM358 voltage follower, then a 2N2222 emitter follower on an 8 V bench supply driving VOA Positive. Feedback is taken at the VOA pin, and a 10 kΩ pull-down holds 0 V. The hardware ceiling is about 5.8 V; software limits the command to 5 V. |
+| D8 | High from the first played sample to the end of playback (scope trigger and modem-log marker) |
+| A0 | Two-Inch Photodetector INTENSITY output, through 10 kΩ with Schottky clamps. INTENSITY is a 1.6 kHz low-passed, scaled copy of the receiver signal, and may not hold the mean level because of the board's DC-subtraction loop. |
+| Optical | 1550 nm DFB laser (about 2 mW at 30 mA), then the VOA, then a fixed attenuator of about 10 dB, then a PIN module on the photodetector, then the B210. Target mean about −15 dBm at the photodetector. |
+
+0 V on the VOA means maximum light, so a failure, a reset or an unplugged Arduino gives maximum light. **Opening the serial port resets the Uno**, so every `oclab-voa` command that talks to the board starts with about 2.5 s at 0 V while the bootloader runs.
+
+### First-time bring-up
+
+1. **Install.** `h5py` is needed for the HDF5 datasets. Then either re-install the package to get the `oclab-voa` command, or run `.venv/bin/python -m oclab.voa` without re-installing.
+   ```sh
+   .venv/bin/python -m pip install -e '.[export]'
+   ```
+2. **Upload the firmware.** Open `firmware/voa_player/voa_player.ino` in the Arduino IDE, choose *Arduino Uno* and the port, upload, and close the Serial Monitor. `OUTPUT_PWM 1` (the default) selects the PWM circuit above. A board still running the older `voa_dac_streamer` version 1 (no A0 monitor) is detected and refused.
+3. **Measure the 5V pin** with a meter and pass it as `--vdd` to every command. Codes are scaled by it, and the 5 V limit is enforced against it.
+4. **Check the drive electrically.** Hold some voltages and measure them at VOA Positive. `0` must read a true 0 V.
+   ```sh
+   oclab-voa --vdd 4.97 set 0
+   oclab-voa --vdd 4.97 set 2.5
+   oclab-voa --vdd 4.97 set 5
+   ```
+5. **Bench-test the timing.** With a scope on D8 and VOA Positive, play a prepared trace in direct mode. The recorded SUM volts are copied to the output. This is an electrical test only; do not use it for a turbulence test.
+   ```sh
+   oclab-voa --vdd 4.97 play voa_runs/seg.csv --direct
+   ```
+6. **Calibrate.** Put the power meter where the photodetector normally sits (after the 10 dB attenuator) and step 0 to 5 V.
+   - The tool asks for a dark reading first, then a reading in µW at each step. It also records the A0 monitor at every step.
+   - With `--monitor` it reads A0 instead of a power meter. Because INTENSITY may not hold the mean level, prefer the power meter.
+   ```sh
+   oclab-voa --vdd 4.97 calibrate --out voa_runs/voa_cal.csv
+   ```
+   The calibration file starts with a JSON line (unit, 5V pin, dark readings), followed by `voltage_v,code,power,monitor_v`.
+
+### Worked example: 19 November 2026
+
+`inspect` lists every session with its gaps, flagged fraction, the longest runs of clean bursts and any dark candidates. An excerpt:
+
+```text
+$ oclab-voa inspect datasets/2026-11-19_night
+20261119T200402Z-6203e0d6  2026-11-19T20:04:02 to 21:04:03 UTC
+  5022 bursts of 1602 samples at 2500 Hz (0.6408 s each), started every 0.712 s (median)
+  Gaps: 5021 (median 71 ms, longest 146 ms); coverage 89.4%; longest gap-free stretch 0.641 s
+  SUM mean 3.62 V; flagged (saturated, rail or below threshold) 0.3%; any-channel clip flag 82.6%
+  Longest runs of bursts with at most 1% flagged samples:
+    20:24:07.595 UTC (--start 1205.4): 1258 bursts, 806.1 s joined (901.2 s of wall clock), 0.00% flagged
+```
+
+Ten minutes from 20:24 UTC, with the dark level measured earlier the same night:
+
+```text
+$ oclab-voa prepare datasets/2026-11-19_night --session 20261119T200402Z --start 1205.4 --duration 600 \
+      --dark -0.0006 --join-bursts --out voa_runs/2026-11-19_2024_10min.csv
+Saved 600000 samples (600.0 s at 1 kHz) to voa_runs/2026-11-19_2024_10min.csv, provenance in voa_runs/2026-11-19_2024_10min.json
+Source 20261119T200402Z-6203e0d6: 938 bursts from 20:24:08.305 to 20:35:20.211 UTC (671.8 s of wall clock)
+Anti-alias: 2500 Hz to 1 kHz (x2/5), 183-tap Kaiser FIR, flat to 400 Hz, 60 dB from 500 Hz
+JOINED: 937 gaps left out (median 71 ms, 70.8 s in total). This trace is not a continuous record.
+Dark -0.0006 V (given with --dark); mean SUM above dark 3.7158 V
+Scintillation index 0.0027; h from 0.347 to 1.077
+Flagged output samples 0.01% (input: saturated or rail 0.00%, below 0.5 V 0.00%)
+```
+
+This window is a quiet one. Other clean windows from the same night, joined in the same way, are listed below. In all of them SUM sat close to the 4 V saturation level, so upward fading may be slightly compressed.
+
+| Session | `--start` | Joined length | Scintillation index |
+|---|---|---|---|
+| `20261119T190402Z` | 3081.6 | 326 s | 0.0068 |
+| `20261119T220403Z` | 2670.6 | 827 s | 0.0063 |
+| `20261120T010405Z` | 1348.5 | 344 s | 0.018 |
+| `20261120T020405Z` | 268.6 | 224 s | 0.057 |
+
+Check the conversion, then play and validate:
+
+```sh
+oclab-voa --vdd 4.97 play voa_runs/2026-11-19_2024_10min.csv --cal voa_runs/voa_cal.csv --dry-run
+oclab-voa --vdd 4.97 play voa_runs/2026-11-19_2024_10min.csv --cal voa_runs/voa_cal.csv --mean-dbm -15
+oclab-voa validate voa_runs/2026-11-19_2024_10min-run-<UTC time>.csv --out voa_runs/validate.json
+```
+
+- `play` prints the mean power, the scintillation index of the trace and as played, the clipped fractions and the drive range before anything is sent.
+- `--hold V` sets the voltage held after playback. The default is the mean-power level, so the link stays at its mean.
+- A run is **rejected** (exit status 1, `"accepted": false`) if any sample underran, any monitor sample was dropped, or the board played a different number of samples.
+
+### Files
+
+| File | Contents |
+|---|---|
+| `<trace>.csv` | `t_s,h,sum_v,flagged`, one row per 1 kHz sample |
+| `<trace>.json` | Provenance: the source file and session, scope and calibration settings, driver revision, the window (first and last capture ID and UTC time, wall-clock span), continuity (whether bursts were joined, the gaps and missing time), the filter and resampling, the dark level and its source, normalisation, flagged fractions, scintillation index, and the SHA-256 of the trace |
+| `<trace>-run-<time>.csv` | One row per played sample: `index,dac_code,drive_v,target_power,monitor_v,monitor_clipped`. `monitor_v` is A0 read 1 ms after that sample was applied; the sketch reads A0 just before each update. |
+| `<trace>-run-<time>.json` | UTC start and end (PC clock when playback was started; the D8 edge follows within about a millisecond plus USB latency), settings, the board report (`played underruns i2c_errors max_late_us monitor_dropped`), acceptance, the calibration used, and the trace's provenance |
+| `validate --out` JSON | Lag and correlation, scintillation index, quantiles and PDFs, Kolmogorov–Smirnov distance, power spectral densities and variance by band, fade statistics at −3, −6 and −10 dB, and the error in dB |
+
+`validate` normalises the target and the monitor to their own means, because INTENSITY may not hold the mean level. It aligns them by the lag of best correlation (the VOA takes up to 2 ms to respond), and uses the dark A0 level recorded in the calibration.
+
+### Safety
+
+- **5 V limit.** Codes are limited to the 5 V software limit, using the measured 5V pin. `--vmax` can only lower the limit. The serial layer checks every code again before sending, so a malformed or non-finite input never reaches the board. The sketch also caps codes at `MAX_CODE`.
+- **Calibration required.** Playback is refused without a calibration, except with `--direct`.
+- **Hold value.** The value held after playback is configurable with `--hold`. `calibrate` returns to 0 V.
+- **Serial protocol.** It is described in [board.py](src/oclab/voa/board.py) and at the top of the sketch. The host pre-fills 448 samples into the board's 512-sample buffer and sends 64 more for each `C` credit. Monitor bytes are only sent when the board's transmit buffer has room, so the 1 ms timing never waits.
+
 ## API
 
 Interactive schema: `/docs`. Apart from the logging switch and session deletion below, all endpoints are read-only; there are no settings changes.
@@ -338,6 +462,10 @@ Public hosting needs your real domain and network access; those are not configur
 ```
 
 Tests exercise the weather line parser (including empty, malformed and partial lines), weather association windows, serial disconnect/reconnect over a fake source and a real pty, weather exports, the driver API adapter, channel/probe/calibration mathematics, invalid and clipped samples, lossless export counts/values, snapshot boundaries, recording recovery, USB failure/retry, failed persistence, disk reserve, session rotation and single-writer locking. Hardware acquisition requires acceptance testing on your actual Hantek device; passing simulation tests does not establish voltage/position calibration.
+
+The VOA playback tests (`tests/test_voa.py`, `tests/test_voa_firmware.py`) need no hardware.
+- **Unit tests** cover gap detection, the anti-alias filter and resampling (including streaming in arbitrary chunks), normalisation and flags, calibration inversion and clipping, the code limit for malformed input, serial parsing, wrong-sketch detection, `validate` and the read-only SQLite reader.
+- **End-to-end tests** compile the real sketch for the PC with a mocked Arduino ([tests/voa_sim/](tests/voa_sim/)). The mock covers the Timer1 registers, `analogRead`, and serial at 115,200 baud with `Serial.availableForWrite`. `oclab-voa` then runs against it over a pseudo-terminal. The tests check that every sample is played in order, that each monitor sample lines up with the right output sample, the D8 timing and the hold value. They need `g++` and are skipped without it.
 
 The frontend is plain HTML/CSS/JavaScript with canvas plots. Runtime files live in `src/oclab/`; `config.example.toml` documents operator settings, and `deploy/` contains the optional service, USB permissions and proxy templates.
 
